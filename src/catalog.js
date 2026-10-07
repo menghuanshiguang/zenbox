@@ -129,3 +129,14 @@ export function parseListing(payload) {
   const rows = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload?.models) ? payload.models : Array.isArray(payload) ? payload : []
   return rows.map(row => (typeof row === 'string' ? row : row?.id)).filter(id => typeof id === 'string' && id !== '')
 }
+
+/**
+ * Static fallback catalog, so a cold start with no network still lists models.
+ * 网关清单拉取失败或完全离线时的兜底 roster（上游 index.js:121 的语义落点）；
+ * start.js 后台轮（M4）在 refresh 失败时保留本清单做广告。
+ */
+export const FALLBACK_CATALOG = buildCatalog([
+  'mimo-v2.6-flash-free', 'mimo-v2.5-free', 'ling-3.0-flash-fin-free',
+  'nemotron-3-ultra-free', 'nemotron-3.5-lightning-free', 'space-bunny-free',
+  'muse-spark-1.3-contributor-free', 'muse-spark-1.2-contributor-free',
+])
