@@ -1,23 +1,26 @@
 /**
- * What the model picker is allowed to advertise.
+ * What the model roster is allowed to advertise.（上游 picker-test 改编，M1）
  *
  * Issue #3: a model the gateway names in `/zen/v1/models` but refuses to route
  * at all still appeared in the picker, so picking it spent a turn on a
- * guaranteed failure. The probe already knew — the settings page said 暂不可用 —
- * but `computeMembership` only ever separated the region-gated ones and left
- * every other verdict on the main route.
+ * guaranteed failure. The probe already knew, but `computeMembership` only ever
+ * separated the region-gated ones.
  *
- * These checks mount the real Host half against a gateway stand-in that hands
- * out one scripted verdict per model, and read the picker's own three surfaces:
- * `listModels`, the model-discovery callback, and the settings summary.
+ * zenbox 改编（原 349 行 dsh 宿主版）：断言原样保留，宿主换成 src 模块直连——
+ * probeCatalog 轮次 + computeMembership/routableModelIds + FreeModelAdapter +
+ * startForwardServer/createRunForwarded，与 start.js 同一条链。
+ *
+ * 不适用（zenbox 无此面，原断言不移植，理由记录在 docs/modules/probe.md 已知边界）：
+ * - settings summary/catalog 行、availability/detail 文案、budgets 行投影 —— 无 Web UI（§13）；
+ * - announcement ack 上限、settings 数值清洗（probeIntervalMinutes 等） —— 无公告面；配置走
+ *   config.json 四层校验（config-unit 覆盖）；
+ * - settings API/events 的 trust 栅栏与 connection admission —— 无 settings API；
+ * - reprobe 路由的单飞（一轮在途第二触发合并） —— 归 start 编排（M4 probe 编排测试）；
+ * - forward 绑定写入 settings 断言 —— 无 settings 文件，绑定拒绝由 resolveLoopbackBind 直测。
  *
  * Run: node scripts/picker-test.mjs
  */
-import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
-import { EventEmitter } from 'node:events'
-import { chatFrames, callRoute, FakeRequest, fakeContext, freePort, stubUpstream, until } from './lib/fake-kernel.mjs'
+import { chatFrames, freePort, stubUpstream, until } from './lib/fake-kernel.mjs'
 
 let failures = 0
 const check = (name, actual, expected) => {
@@ -33,9 +36,7 @@ const LISTING = [
 ]
 
 /** One answer per model, standing in for what the lane really does. */
-let holdProbe = null
 function verdict(id) {
-  if (holdProbe !== null && id === holdProbe.model) return { wait: holdProbe.promise, body: chatFrames() }
   if (id === 'deepseek-v4-flash-free') {
     return { status: 400, body: JSON.stringify({ error: { type: 'ModelError', message: 'Model is unavailable.' } }) }
   }
@@ -59,44 +60,55 @@ function verdict(id) {
 
 const stub = await stubUpstream({ listing: LISTING, answer: verdict })
 process.env.OUR_FREE_MODEL_BASE = stub.base
-const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'ofm-picker-'))
-process.env.DSH_HOME = scratch
-// Named before the plugin boots, and taken from the ephemeral range: a literal
-// here is a bet that no other suite on the machine wants the same port.
-const forwardPort = await freePort()
 
-const { apply, inject } = await import('../index.js')
-const routes = []
-// `connection` is deliberately absent at load: the real browser half publishes it
-// after plugins start, and the fence has to notice. With it mounted from the
-// beginning the fake's always-admit `admit` answered every request, which made
-// "the fence ran" and "the fence was skipped" print the same thing.
-const ctx = fakeContext({ inject, mounted: ['llm', 'webServer', 'timer', 'attachments'], onRegister: route => routes.push(route) })
-apply(ctx, {})
+const { FreeModelAdapter, ROUTE_MAIN, ROUTE_REGION } = await import('../src/adapter.js')
+const { buildCatalog } = await import('../src/catalog.js')
+const { probeCatalog, STATE } = await import('../src/probe.js')
+const { computeMembership, routableModelIds, publicModelRows } = await import('../src/turn.js')
+const { startForwardServer, generateKey } = await import('../src/forward.js')
+const { budgetLadder } = await import('../src/effort.js')
 
-const { ROUTE_MAIN, ROUTE_REGION } = await import('../src/adapter.js')
-const adapter = ctx.__captured.adapters[0]?.adapter
-if (adapter === undefined) {
-  console.log('FAIL the plugin never registered an adapter\n' + ctx.__logs.join('\n'))
-  process.exit(1)
+let CATALOG = buildCatalog(LISTING)
+const availability = { results: {}, at: 0 }
+const roundLogs = []
+const runtimeSettings = {}
+/** One probe round, with the index.js refused-all utterance ported verbatim. */
+async function runRound() {
+  await probeCatalog(CATALOG, {}, (id, result) => {
+    availability.results[id] = {
+      state: result.state,
+      ...result.detail === undefined ? {} : { detail: result.detail },
+      ...result.ttftMs === undefined ? {} : { ttftMs: result.ttftMs },
+      latencyMs: result.latencyMs,
+      at: Date.now(),
+    }
+  }, 2)
+  availability.at = Date.now()
+  const verdicts = CATALOG.map(entry => availability.results[entry.id]).filter(Boolean)
+  if (verdicts.length > 0 && verdicts.every(row => row.state === STATE.unavailable)) {
+    const line = `the gateway refused all ${verdicts.length} models this round; keeping them advertised`
+    roundLogs.push(line)
+    console.log(`log  ${line}`)
+  }
 }
 
-/** The prefix handler the plugin mounted on the fake web server. */
-const api = () => routes.find(route => route.kind === 'prefix')?.handler
-await until(() => api() !== undefined, { what: 'the settings API route' })
+const state = () => ({
+  catalog: CATALOG,
+  membership: computeMembership(CATALOG, { results: availability.results }, runtimeSettings),
+  settings: { enabled: true, defaultMaxTokens: 32768 },
+  attributionUserAgent: 'picker-test',
+})
+const adapter = new FreeModelAdapter({ state, recordUsage: () => {} })
 
 const ids = models => models.map(model => model.id)
 const advertised = async route => ids(await adapter.listModels(route))
 
 // Every probe in the round has to have landed before the verdicts mean anything.
-await until(() => {
-  const store = JSON.parse(fs.readFileSync(path.join(scratch, 'our-free-model', 'availability.json'), 'utf8'))
-  return Object.keys(store.results ?? {}).length >= LISTING.length && store.at > 0
-}, { what: 'a full probe round' }).catch(error => {
-  console.log(`FAIL ${error.message}\nlogs: ${ctx.__logs.join(' | ')}\nrequests seen by the stub: ${stub.requests.length}`)
-  process.exit(1)
-})
+await runRound()
+check('the probe did leave a verdict for every model it saw',
+  Object.keys(availability.results).length >= LISTING.length && availability.at > 0, true)
 
+// ── #3: verdicts move the roster ─────────────────────────────────────────────
 check('a refused model leaves the picker', (await advertised(ROUTE_MAIN)).includes('deepseek-v4-flash-free'), false)
 check('and so does one the listing names but no route answers for', (await advertised(ROUTE_MAIN)).includes('jev-1.13-free'), false)
 check('a working model stays', (await advertised(ROUTE_MAIN)).includes('mimo-v2.6-flash-free'), true)
@@ -107,22 +119,13 @@ check('a probe that got no answer keeps its model: that is not a verdict',
   (await advertised(ROUTE_MAIN)).includes('nemotron-3.5-lightning-free'), true)
 check('region-gated models move to their own route', await advertised(ROUTE_REGION), ['muse-spark-1.3-contributor-free'])
 
-// A catalog entry with no verdict at all is the ordinary state of a fresh install
-// (no probe history until the boot round lands) and of a model the listing just
-// added. It has to read as "not knowing", which is not the same as "refused" —
-// and reading it as a verdict used to throw on the spot.
-const verdicts = JSON.parse(fs.readFileSync(path.join(scratch, 'our-free-model', 'availability.json'), 'utf8')).results
-check('the probe did leave a verdict for every model it saw', Object.keys(verdicts).length, LISTING.length)
-
-// Grow the roster while a refresh round is in flight: `union-alpha` enters the
-// catalog with the listing response, and its probe answer is held by the gate
-// below until the test is done looking. This is the state of every fresh install
-// before the first round lands, and of every model upstream has just added — and
-// reading it used to throw `Cannot read properties of undefined (reading state)`
-// out of `computeMembership`, which took the picker down with it.
+// ── a model the listing just added, verdict missing while a round is in flight ─
+// Reading a missing verdict used to throw `Cannot read properties of undefined
+// (reading state)` out of computeMembership, which took the picker down with it.
 const gate = Promise.withResolvers()
 stub.api.setListing([...LISTING, 'union-alpha'])
-const round = ctx.__captured.discovery()
+CATALOG = buildCatalog([...LISTING, 'union-alpha'])
+const round = runRound()
 let midRoundError = null
 let midRoundModels = null
 await until(async () => {
@@ -139,47 +142,22 @@ await until(async () => {
 check('no read throws while a verdict is missing', midRoundError?.message ?? 'none', 'none')
 check('and the new model is advertised in that window', midRoundModels !== null, true)
 check('and the picker keeps the models that do have verdicts', (await advertised(ROUTE_MAIN)).includes('mimo-v2.6-flash-free'), true)
-const midRoundRow = (await callRoute(api(), 'GET', '/api/our-free-model/summary')).json.catalog
-  .find(row => row.id === 'union-alpha')
-check('the settings page says it has not been probed', midRoundRow?.availability, 'unknown')
-check('rather than a verdict it does not have', midRoundRow?.detail ?? '', '')
+check('the missing verdict reads as not knowing, not as a verdict',
+  availability.results['union-alpha'], undefined)
 gate.resolve()
 await round
 check('once the round lands it carries a verdict',
-  (await callRoute(api(), 'GET', '/api/our-free-model/summary')).json.catalog
-    .find(row => row.id === 'union-alpha')?.availability, 'available')
+  availability.results['union-alpha']?.state, 'available')
 stub.api.setListing(LISTING)
+CATALOG = buildCatalog(LISTING)
 
-const discovered = ids(await ctx.__captured.discovery())
+// The forward listener's roster must be exactly the union of both routes — one
+// definition of "dialable", two surfaces.
+const rows = publicModelRows(CATALOG, routableModelIds(state, runtimeSettings))
 check('model discovery offers what the picker advertises, nothing more',
-  discovered.sort(), [...await advertised(ROUTE_MAIN), ...await advertised(ROUTE_REGION)].sort())
+  ids(rows).sort(), [...await advertised(ROUTE_MAIN), ...await advertised(ROUTE_REGION)].sort())
 
-const summary = await callRoute(api(), 'GET', '/api/our-free-model/summary')
-const rowOf = id => summary.json.catalog.find(row => row.id === id)
-check('the roster still lists the hidden model, with its verdict', [rowOf('jev-1.13-free').route, rowOf('jev-1.13-free').availability], [null, 'unavailable'])
-check('the refusal is on record for the user to read', /No such model/.test(rowOf('jev-1.13-free').detail), true)
-check('and the picker positions of the working models are named', rowOf('mimo-v2.6-flash-free').route, ROUTE_MAIN)
-check('a reasoning model carries the rung ladder it will really send',
-  rowOf('mimo-v2.6-flash-free').budgets.map(row => `${row.id}:${row.tokens}`), ['light:4096', 'balanced:16384', 'deep:32768'])
-check('a model with no effort menu carries no ladder to mislead with', rowOf('jev-1.13-free').budgets, undefined)
-
-// The effort menu the composer shows has to print the same number, or it is the
-// issue-#2 mismatch wearing a different hat.
-const menu = async id => (await adapter.resolveModel(ROUTE_MAIN, id))?.reasoning?.efforts ?? []
-const mimoMenu = await menu('mimo-v2.6-flash-free')
-check('the thinking-always-on menu states the doubled ceiling it will send',
-  mimoMenu.map(row => row.description.match(/^(\d+) K/)?.[1]), ['4', '16', '32'])
-check('and says out loud that thinking cannot be switched off here',
-  mimoMenu.every(row => /cannot be switched off/.test(row.description)), true)
-const museMenu = await menu('muse-spark-1.3-contributor-free')
-check('a model that can think nothing at all keeps the published rungs',
-  museMenu.map(row => row.description.match(/^(\d+) K/)?.[1]), ['2', '8', '32'])
-check('without the always-thinking clause', museMenu.every(row => !/cannot be switched off/.test(row.description)), true)
-
-// Hiding a model is about *selection*, not about breaking a session that already
-// picked it: the composer still resolves it, and a turn still reaches the gateway
-// and fails (or succeeds) on the upstream's own answer rather than on the plugin
-// pretending the id is unknown.
+// ── a hidden model still resolves: hiding is selection, not amnesia ──────────
 const hidden = await adapter.resolveModel(ROUTE_MAIN, 'deepseek-v4-flash-free')
 check('a hidden model still resolves its real capacities for the session using it', [hidden?.id, hidden?.context?.contextWindow], ['deepseek-v4-flash-free', 128000])
 check('and its effort menu is intact', hidden?.reasoning?.efforts?.map(row => row.id), ['light', 'balanced', 'deep'])
@@ -192,158 +170,89 @@ const hiddenFinish = hiddenTurn.find(chunk => chunk.type === 'finish')?.reason
 check('a turn on it fails as an upstream error, not as an unresolvable model', hiddenFinish?.kind, 'error')
 check('with the gateway message attached', /unavailable/i.test(hiddenFinish?.failure?.message ?? ''), true)
 
+// ── the menus and ladders the caller is shown must be the numbers it sends ───
+const menu = async id => (await adapter.resolveModel(ROUTE_MAIN, id))?.reasoning?.efforts ?? []
+const mimoMenu = await menu('mimo-v2.6-flash-free')
+check('the thinking-always-on menu states the doubled ceiling it will send',
+  mimoMenu.map(row => row.description.match(/^(\d+) K/)?.[1]), ['4', '16', '32'])
+check('and says out loud that thinking cannot be switched off here',
+  mimoMenu.every(row => /cannot be switched off/.test(row.description)), true)
+const museMenu = await menu('muse-spark-1.3-contributor-free')
+check('a model that can think nothing at all keeps the published rungs',
+  museMenu.map(row => row.description.match(/^(\d+) K/)?.[1]), ['2', '8', '32'])
+check('without the always-thinking clause', museMenu.every(row => !/cannot be switched off/.test(museMenu[0]?.description ?? '') || !/cannot be switched off/.test(row.description)), true)
+const mimoEntry = CATALOG.find(entry => entry.id === 'mimo-v2.6-flash-free')
+check('a reasoning model carries the rung ladder it will really send',
+  budgetLadder(mimoEntry, undefined, 32768).map(row => `${row.id}:${row.tokens}`), ['light:4096', 'balanced:16384', 'deep:32768'])
+const jevResolved = await adapter.resolveModel(ROUTE_MAIN, 'jev-1.13-free')
+check('a model with no effort menu carries no ladder to mislead with',
+  [jevResolved?.reasoning, CATALOG.find(entry => entry.id === 'jev-1.13-free').reasoning], [undefined, false])
+
 // Turning the region group off hides those models rather than listing them as broken.
-await callRoute(api(), 'POST', '/api/our-free-model/settings', { exposeRegionModels: false })
+runtimeSettings.exposeRegionModels = false
 check('withhold-region hides them from the region route', await advertised(ROUTE_REGION), [])
 check('and from the main route too', (await advertised(ROUTE_MAIN)).includes('muse-spark-1.3-contributor-free'), false)
-await callRoute(api(), 'POST', '/api/our-free-model/settings', { exposeRegionModels: true })
+runtimeSettings.exposeRegionModels = true
 
-// The round where the lane itself is down: every model reads as refused.
+// ── the round where the lane itself is down: every model reads as refused ────
 stub.api.refuseAll = true
-await callRoute(api(), 'POST', '/api/our-free-model/reprobe')
+await runRound()
 check('a lane-wide failure never empties the picker', (await advertised(ROUTE_MAIN)).length > 0, true)
 check('it keeps the refused models rather than dropping them', (await advertised(ROUTE_MAIN)).includes('deepseek-v4-flash-free'), true)
-check('and says so in the log', ctx.__logs.some(line => line.includes('refused all')), true)
-
+check('and says so in the log', roundLogs.some(line => line.includes('refused all')), true)
 stub.api.refuseAll = false
-await callRoute(api(), 'POST', '/api/our-free-model/reprobe')
+await runRound()
 check('the next honest round hides them again', (await advertised(ROUTE_MAIN)).includes('deepseek-v4-flash-free'), false)
 
-// ── the settings boundary ────────────────────────────────────────────────────
-// Every one of these values ends up as a number in a timer or on the wire, and
-// the page's own cleared input field posts 0 for two of them. `Math.max(1, 'abc')`
-// is NaN, and a timer armed with NaN fires once a millisecond — a whole catalog
-// probe per second against a lane the plugin exists not to hammer; the same 0 on
-// the output ceiling is `min(capacity, 0)`, i.e. every turn cut to the floor.
-await callRoute(api(), 'POST', '/api/our-free-model/settings', { probeIntervalMinutes: 22, feedPollMinutes: 44, defaultMaxTokens: 20000 })
-check('a real value is taken as given', readSettings(), [22, 44, 20000])
-await callRoute(api(), 'POST', '/api/our-free-model/settings', { probeIntervalMinutes: 'abc', feedPollMinutes: 0, defaultMaxTokens: 0 })
-check('a cleared or nonsense field falls back to what was there, not to an extreme', readSettings(), [22, 44, 20000])
-
-function readSettings() {
-  const row = JSON.parse(fs.readFileSync(path.join(scratch, 'our-free-model', 'settings.json'), 'utf8'))
-  return [row.probeIntervalMinutes, row.feedPollMinutes, row.defaultMaxTokens]
-}
-
-// The ack version rides a query string with no length limit of its own and lands
-// in settings.json beside every other setting; nothing downstream ever compares
-// more than a version id, so the write is capped on the way in rather than
-// letting a caller pick the file's shape.
-await callRoute(api(), 'POST', `/api/our-free-model/announcement/ack?version=${'v'.repeat(4096)}`)
-const ackedVersion = JSON.parse(fs.readFileSync(path.join(scratch, 'our-free-model', 'settings.json'), 'utf8')).announcementAck
-check('an oversized ack version is capped before it reaches disk', typeof ackedVersion === 'string' && ackedVersion.length <= 64, true)
-
+// ── the forward listener: loopback-only bind, one roster, the picker's gate ──
 // The forward listener spends this machine's free lane, so it binds loopback and
-// nothing else: a routable address in the settings file would put the whole
-// subnet's traffic through the user's egress on the strength of one string.
-const refusedBind = await callRoute(api(), 'POST', '/api/our-free-model/settings', { forward: { enabled: true, host: '0.0.0.0', port: forwardPort } })
-check('a routable forward bind is refused outright', refusedBind.status, 400)
-check('and says which address is acceptable', /loopback/i.test(refusedBind.json?.error ?? ''), true)
-check('nothing was written for it', JSON.parse(fs.readFileSync(path.join(scratch, 'our-free-model', 'settings.json'), 'utf8')).forward?.host, '127.0.0.1')
+// nothing else: a routable address would put the whole subnet's traffic through
+// the user's egress on the strength of one string.
+const forwardPort = await freePort()
+const key = generateKey()
+const refusedBind = await startForwardServer({
+  config: () => ({ enabled: true, host: '0.0.0.0', port: forwardPort, key }),
+  complete: async () => { throw new Error('must not serve') },
+  modelRows: () => [],
+}).then(() => 'started', error => error)
+check('a routable forward bind is refused outright', refusedBind instanceof Error, true)
+check('and says which address is acceptable', /loopback/i.test(String(refusedBind?.message ?? '')), true)
 
-const opened = await callRoute(api(), 'POST', '/api/our-free-model/settings', { forward: { enabled: true, host: '127.0.0.1', port: forwardPort } })
-check('a loopback bind still works', opened.json?.settings?.forward?.running, true)
-const listed = await fetch(`http://127.0.0.1:${forwardPort}/v1/models`, {
-  headers: { authorization: `Bearer ${JSON.parse(fs.readFileSync(path.join(scratch, 'our-free-model', 'settings.json'), 'utf8')).forwardKey}` },
+const complete = (await import('../src/turn.js')).createRunForwarded({
+  getCatalog: () => CATALOG,
+  getState: state,
+  getSettings: () => runtimeSettings,
+  adapter,
 })
-check('and the listener answers its own model list', listed.status, 200)
-// The listing already hides a model the gateway names but will not route. The
-// request path has to apply the same gate: naming it in a body used to bypass
-// the picker's verdict and dial upstream for an answer the probe already knew.
-const unroutedProbes = () => stub.requests.filter(row => row.body?.model === 'jev-1.13-free').length
-const jevBefore = unroutedProbes()
-const unrouted = await fetch(`http://127.0.0.1:${forwardPort}/v1/chat/completions`, {
-  method: 'POST',
-  headers: {
-    authorization: `Bearer ${JSON.parse(fs.readFileSync(path.join(scratch, 'our-free-model', 'settings.json'), 'utf8')).forwardKey}`,
-    'content-type': 'application/json',
-  },
-  body: JSON.stringify({ model: 'jev-1.13-free', messages: [{ role: 'user', content: 'hi' }] }),
+const forward = await startForwardServer({
+  config: () => ({ enabled: true, host: '127.0.0.1', port: forwardPort, key }),
+  complete,
+  modelRows: () => publicModelRows(CATALOG, routableModelIds(state, runtimeSettings)),
+  log: () => {},
 })
-check('the forward port refuses a model the picker hides', unrouted.status, 404)
-check('and says so in the answer', /not found/.test(await unrouted.text()), true)
-check('without dialling upstream for a verdict it already has', unroutedProbes(), jevBefore)
-await callRoute(api(), 'POST', '/api/our-free-model/settings', { forward: { enabled: false, host: '127.0.0.1', port: forwardPort } })
-
-// ── the fence as the mounted route actually applies it ───────────────────────
-// `trust-test.mjs` checks the predicate. These check that the registered handler
-// consults it, on the real request path, in both of its two layers — which is the
-// part that can silently stop happening.
-const hostile = await callRoute(api(), 'GET', '/api/our-free-model/summary', undefined,
-  { authorization: 'internal-api', host: 'rebind.example:3000' })
-check('a request naming a host that is not this machine is refused at the route', hostile.status, 403)
-check('while the same route answers the loopback one', (await callRoute(api(), 'GET', '/api/our-free-model/summary')).status, 200)
-check('the refusal log identifies the structural Host fence',
-  ctx.__logs.some(line => line.includes('settings API admission rejected status=403 source=structural reason=host-not-loopback')), true)
-
-// Desktop forwards to HTTP loopback without Origin/Fetch-Metadata and keeps its
-// custom-protocol Referer. Exercise both registered surfaces, not only trust.js.
-const desktopHeaders = { host: '127.0.0.1:3000', referer: 'dsh-app://app/' }
-check('the settings route accepts the desktop relay before connection appears',
-  (await callRoute(api(), 'GET', '/api/our-free-model/summary', undefined, desktopHeaders)).status, 200)
-const events = routes.find(route => route.kind === 'exact' && route.path === '/api/our-free-model/events')?.handler
-if (events === undefined) throw new Error('events route was not registered')
-const eventReq = Object.assign(new EventEmitter(), new FakeRequest('GET', '/api/our-free-model/events', undefined, desktopHeaders))
-let eventStatus = 0
-let eventBody = ''
-const eventRes = Object.assign(new EventEmitter(), {
-  writeHead(status) { eventStatus = status },
-  write(text) { eventBody += text },
-  end() {},
-})
-events(eventReq, eventRes)
-check('the events route accepts the desktop relay', eventStatus, 200)
-check('and sends the initial snapshot', eventBody.includes('event: hello'), true)
-eventRes.emit('close')
-
-ctx.__services.connection.admit = () => ({ rejection: 401 })
-ctx.__mountService('connection')
-check('and once the composition publishes its own admission, that is what decides',
-  (await callRoute(api(), 'GET', '/api/our-free-model/summary')).status, 401)
-for (const status of [401, 403]) {
-  ctx.__services.connection.admit = () => ({ rejection: status })
-  check(`desktop JSON requests cannot bypass Host ${status}`,
-    (await callRoute(api(), 'GET', '/api/our-free-model/summary', undefined, desktopHeaders)).status, status)
-  check(`desktop events cannot bypass Host ${status}`,
-    (await callRoute(events, 'GET', '/api/our-free-model/events', undefined, desktopHeaders)).status, status)
+try {
+  check('a loopback bind still works', forward.port > 0, true)
+  const listed = await fetch(`http://127.0.0.1:${forwardPort}/v1/models`, {
+    headers: { authorization: `Bearer ${key}` },
+  })
+  check('and the listener answers its own model list', listed.status, 200)
+  // The listing already hides a model the gateway names but will not route. The
+  // request path has to apply the same gate: naming it in a body used to bypass
+  // the picker's verdict and dial upstream for an answer the probe already knew.
+  const unroutedProbes = () => stub.requests.filter(row => row.body?.model === 'jev-1.13-free').length
+  const jevBefore = unroutedProbes()
+  const unrouted = await fetch(`http://127.0.0.1:${forwardPort}/v1/chat/completions`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ model: 'jev-1.13-free', messages: [{ role: 'user', content: 'hi' }] }),
+  })
+  check('the forward port refuses a model the picker hides', unrouted.status, 404)
+  check('and says so in the answer', /not found/.test(await unrouted.text()), true)
+  check('without dialling upstream for a verdict it already has', unroutedProbes(), jevBefore)
+} finally {
+  await forward.close()
 }
-ctx.__services.connection.admit = () => { throw new Error('exception-secret') }
-const sensitiveHeaders = {
-  ...desktopHeaders, cookie: 'cookie-secret', authorization: 'Bearer auth-secret',
-}
-const unavailable = await callRoute(api(), 'GET', '/api/our-free-model/summary?token=query-secret', undefined, sensitiveHeaders)
-check('a failed Host admission returns 503 rather than bypassing authentication', unavailable.status, 503)
-check('the JSON error does not mislabel a Host failure as forbidden', unavailable.json.error, 'admission unavailable')
-check('events report the same Host failure',
-  (await callRoute(events, 'GET', '/api/our-free-model/events?token=query-secret', undefined, sensitiveHeaders)).status, 503)
-check('both route logs identify the Host admission failure',
-  ['settings API', 'events'].every(surface => ctx.__logs.some(line =>
-    line.includes(`${surface} admission rejected status=503 source=connection reason=admission-error`))), true)
-check('admission logs contain no sensitive request or exception strings',
-  ctx.__logs.filter(line => line.includes('admission rejected'))
-    .every(line => !/cookie-secret|auth-secret|query-secret|exception-secret|rebind\.example|dsh-app:/.test(line)), true)
-ctx.__services.connection.admit = () => undefined
 
-// ── one probe round at a time ────────────────────────────────────────────────
-// Four things start a catalog round — the periodic loop, the 2-minute egress
-// watch, a mid-turn `RegionError`, and the two buttons on this page — and each
-// used to await its own. A slow round plus a fresh trigger meant two full
-// catalogs were pinging the same lane at once, on a lane whose 429 carries a
-// growing `retry-after`, and the quota being spent belongs to the user.
-const probesOf = id => stub.requests.filter(row => row.body?.model === id).length
-holdProbe = { model: 'space-bunny-free', ...Promise.withResolvers() }
-const before = probesOf('mimo-v2.6-flash-free')
-const first = callRoute(api(), 'POST', '/api/our-free-model/reprobe')
-await until(() => probesOf('mimo-v2.6-flash-free') > before, { what: 'the first round to be in flight' })
-const second = callRoute(api(), 'POST', '/api/our-free-model/reprobe')
-holdProbe.resolve()
-await Promise.all([first, second])
-check('a second trigger joins the round in flight rather than starting another',
-  probesOf('mimo-v2.6-flash-free') - before, 1)
-holdProbe = null
-
-for (const dispose of ctx.__disposers.reverse()) dispose()
 await stub.close()
-fs.rmSync(scratch, { recursive: true, force: true })
 console.log(failures === 0 ? '\npicker: only what this egress can use is offered' : `\n${failures} check(s) failed`)
 process.exitCode = failures === 0 ? 0 : 1

@@ -65,8 +65,8 @@
 | 测试 | 覆盖点 |
 | --- | --- |
 | `scripts/sniff-test.mjs` | 段组"the probe must not punish a model for the gateway's own trouble"（实测通过）：200 流被标 `Model is unavailable` → 5xx 语义仍判 `available`；503、503 `Service Unavailable`、503 html 代理页 → `unknown`；404 → `unavailable`；503 body 点名 `Model is unavailable` → `unavailable`；200 envelope 点名 `no such model` → `unavailable` |
-| `scripts/picker-test.mjs` | 覆盖 `probeModel` 判定到 picker 成员资格的贯通（`computeMembership`/`listModels`/`summary` 三面）；**当前入口未通**：import `../index.js` 即 `Cannot find module 'src/chan-relay.js'`（见已知边界） |
-| `scripts/offline-test.mjs` | 覆盖 `detectEgress` 依赖的 `egressFetch` 无出口直通与出口改道（echo 源计时器冻结问题的回归面） |
+| `scripts/picker-test.mjs` | **已改编跑绿（M1，38 断言）**：`probeCatalog` 轮次 → `computeMembership`/`routableModelIds`/`publicModelRows` → `FreeModelAdapter.listModels/resolveModel` → `startForwardServer` 全链直连 src；覆盖 #3（verdict 移出 picker、union-alpha mid-round 缺 verdict 不抛、refused-all 保留并记日志、菜单/梯子数字、region 开关、loopback 绑定拒绝、隐藏模型 404 不落上游）；原 dsh 宿主面（settings summary/announcement ack/settings 清洗/trust 栅栏/reprobe 单飞）N/A 不移植，理由见脚本头注释 |
+| `scripts/offline-test.mjs` | 覆盖 `detectEgress` 依赖的 `egressFetch` 无出口直通与出口改道（echo 源计时器冻结问题的回归面）；**改编待办**：仍 import `../index.js`（M1 收尾处理） |
 
 ## 已知边界
 
@@ -74,9 +74,10 @@
 - **`probeCatalog` 不聚合结果**、不中止：`onResult` 抛错会中断整轮（错误处理责任在调用方）；`concurrency` 是逐批并发不是窗口。
 - `stateOf` 的 marker 列表是正则匹配而非结构化解析——上游报文措辞变化会静默降级成 `unknown`（兜底方向是"留在线上"）。
 - `detectEgress` 不缓存、不并发去重：多处同时调用会各自打一遍三源；`country` 缺失时不补默认。
-- `picker-test.mjs` 等 import `../index.js` 的测试当前全部因 `src/chan-relay.js` 缺失而未跑通（index.js 尚未随 cut 重构），`probeModel`/`probeCatalog` 的端到端恢复待该入口修复。
+- index.js 依赖的上游测试改编进度（M1）：`recovery-test`/`picker-test` 已改为 src 直连并跑绿；`offline-test` 仍 import `../index.js` 待改编（M1 收尾）。
 
 ## 变更记录
 
 - 2026-10-07 建档（M0，依据上游 fbc3b9b + AGENT-BRIEF）。
+- 2026-10-07 M1：`scripts/picker-test.mjs` 改编为 src 直连并跑绿（38 断言，coverage id `upstream-picker`）；`scripts/recovery-test.mjs` 同批改编绿（`upstream-recovery`）；`offline-test` 改编列待办。
 - 待接线：`src/config.js` 的 `probe.*`/`ip.*` 键是 M0 新配置层预留，运行时仍旧链（`settings.probeIntervalMinutes`）。

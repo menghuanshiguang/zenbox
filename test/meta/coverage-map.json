@@ -8,6 +8,8 @@
     "adapter-unit": "test/unit/adapter.test.js",
     "messages-projection": "test/unit/messages-projection.test.js",
     "effort-unit": "test/unit/effort.test.js",
-    "turn-unit": "test/unit/turn.test.js"
+    "turn-unit": "test/unit/turn.test.js",
+    "upstream-picker": "scripts/picker-test.mjs",
+    "upstream-recovery": "scripts/recovery-test.mjs"
   }
 }
