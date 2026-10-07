@@ -22,7 +22,7 @@
 | `isMessagesModel` | function | `isMessagesModel(modelId) → boolean` | `MESSAGES_MODELS`（`union-alpha`）命中即 true。 |
 | `endpointFor` | function | `endpointFor(modelId) → '/zen/v1/responses' \| '/zen/v1/messages' \| '/zen/v1/chat/completions'` | 模型到网关端点的唯一路由表。 |
 | `wireFor` | function | `wireFor(modelId) → 'responses' \| 'messages' \| 'chat'` | 端点的线形名，驱动请求编码与响应解析。 |
-| `gatewayHeaders` | function | `gatewayHeaders({ session, requestId, stream, accept }) → object` | 网关指纹头：`content-type`、`authorization: Bearer public`（池化免密凭据，无每用户密钥）、`user-agent: CLIENT_UA`、`x-opencode-client: desktop`、`x-opencode-session/request/project: global`、`accept`（流式 `text/event-stream`，否则 `*/*`，可显式覆盖）。 |
+| `gatewayHeaders` | function | `gatewayHeaders({ session, requestId, stream, accept, deviceIp }) → object` | 网关指纹头：`content-type`、`authorization: Bearer public`（池化免密凭据，无每用户密钥）、`user-agent: CLIENT_UA`、`x-opencode-client: desktop`、`x-opencode-session/request/project: global`、`accept`（流式 `text/event-stream`，否则 `*/*`，可显式覆盖）。#41：`deviceIp` 为非空字符串时附 `x-forwarded-for`，本地流量不带该头、线上形状不变。 |
 | `applyFingerprint` | function | `applyFingerprint(body, style) → Map<string,string>` | 就地满足指纹门：`style` 为 `true`（Responses 平铺）/ `false`（Chat 包裹）/ `'claude'`（Messages）；四件套大小写归一并去重（上游拒 `Bash`+`bash` 重复），缺槽先用 `QUARTET_DONORS`（`bash`←`pwsh`）提升真实工具再补自禁用 decoy，`tool_choice` 仅在缺失时补（平铺→`'auto'`；调用方无工具→`'none'`/`{type:'none'}`）。返回 发送名→调用方名 的改名映射。 |
 | `restoreToolName` | function | `restoreToolName(name, map) → string` | 用改名映射把发送名还原为调用方拼写（映射为空或未命中则原样返回）。 |
 | `declaredToolNames` | function | `declaredToolNames(body) → Set<string>` | 收集 `body.tools` 中已声明的工具名（两种拼写通吃）。仓内暂无调用方（`src/forward.js` 自建 declared 集合）。 |
@@ -61,6 +61,7 @@
 | PR | 处置 | 落点/理由 |
 | --- | --- | --- |
 | #39 | 已合入上游 main | 探测截止相关改动；当前代码即合入后状态。UA 字面量 `opencode/1.18.31` 属 adapter 层口径，此处如实记录现状。 |
+| #41 | **已移植**（2026-10-07 M2，本仓 commit 见 pr-coverage） | `gatewayHeaders` 增 `deviceIp` 参数→条件附 `x-forwarded-for`（本模块）；链路上游见 `http.js`/`adapter.js`/`turn.js`/`forward.js`；测试 `scripts/forward-test.mjs` 四断言 + `scripts/recovery-test.mjs` 端到端一断言（upstream-forward） |
 
 （处置矩阵见 docs/pr-coverage.md；本表只列直接落进本模块的。）
 
@@ -89,3 +90,4 @@
 ## 变更记录
 
 - 2026-10-07 建档（M0，依据上游 fbc3b9b + AGENT-BRIEF）。
+- 2026-10-07 M2 移植 #41：`gatewayHeaders` 增 `deviceIp`→`x-forwarded-for`；forward-test 四断言 + recovery-test 端到端一断言红→绿。

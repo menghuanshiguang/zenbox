@@ -19,7 +19,7 @@ gates.test 校验测试列引用的 id 存在。
 | #75 | 移植：onQuotaHit→refreshOutletExit({avoid}) | 待移植（M3 egress/adapter） | — |
 | #74 | 移植：effort 别名 minimal/low/medium/high/none→light/balanced/deep + /v1/models 暴露档位 | 已移植（M1: `src/effort.js` normalizeLevel/LEVEL_ALIASES + resolveLevel 别名解析，commit 见 git log `feat(effort)`；forward 侧 callerEffort 与 /v1/models `x_ofm_*` 暴露属 M2/M3 落位） | effort-unit |
 | #72 | 移植：监听先行 boot-order（勿误读为不移植） | 待移植（M4 start 时序） | — |
-| #41 | 移植：设备 IP→`x-forwarded-for`（依赖 #40） | 待移植（M2 forward） | — |
+| #41 | 已移植（M2，port-of #41） | 设备 IP 贯穿链：`forward.js` `serveCompletion`/`proxyHeaderV1` 认领源 → `turn.js` options → `adapter.js` → `http.js` → `upstream.js` `x-forwarded-for`；4+1 断言 | upstream-forward |
 | #40 | 已移植（M2，port-of #40） | `src/forward.js` PROXY v1 嗅探/解析/前门+中继非池化；6 断言 | upstream-forward |
 | #45 | 部分移植：egress.mode=proxy（吸收 proxy/secret 逻辑，剔除 EAC 触达） | 待移植（M3 egress） | — |
 | #44 | 不适用：被取代 | — | — |

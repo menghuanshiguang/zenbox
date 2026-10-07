@@ -203,18 +203,27 @@ function bareAddress(ip) {
 
 /**
  * The PROXY v1 line for one relayed connection: the device that dialed the
- * relay is the source, this machine's relay-side endpoint the destination.
- * An address family that does not match across the pair claims nothing
- * (`UNKNOWN`), which the listener reads as a headerless connection.
+ * relay — or, when a public tunnel spoke first, the one its own PROXY line
+ * claimed — is the source; this machine's relay-side endpoint the
+ * destination. An address family that does not match across the pair claims
+ * nothing (`UNKNOWN`), except that a claimed device keeps its family: the
+ * destination then falls back to that family's loopback, because the line
+ * must stay well-formed for the listener to read the device at all.
  */
 function proxyHeaderV1(socket) {
-  const src = bareAddress(socket.remoteAddress)
+  const claimed = socket.ofmDevice
+  const src = bareAddress(claimed?.address ?? socket.remoteAddress)
   const dst = bareAddress(socket.localAddress)
   const srcFamily = net.isIP(src)
-  const family = srcFamily && srcFamily === net.isIP(dst) ? srcFamily : 0
-  if (!family || !socket.remotePort || !socket.localPort) return 'PROXY UNKNOWN\r\n'
+  const dstFamily = net.isIP(dst)
+  const finalDst = srcFamily && dstFamily && srcFamily !== dstFamily
+    ? (srcFamily === 4 ? '127.0.0.1' : '::1')
+    : dst
+  const family = srcFamily && srcFamily === net.isIP(finalDst) ? srcFamily : 0
+  const srcPort = claimed?.port ?? socket.remotePort
+  if (!family || !srcPort || !socket.localPort) return 'PROXY UNKNOWN\r\n'
   const proto = family === 4 ? 'TCP4' : 'TCP6'
-  return `PROXY ${proto} ${src} ${dst} ${socket.remotePort} ${socket.localPort}\r\n`
+  return `PROXY ${proto} ${src} ${finalDst} ${srcPort} ${socket.localPort}\r\n`
 }
 
 /**
@@ -673,7 +682,7 @@ export async function startLanRelay({ config, log = () => {}, onTrace = () => {}
       openAiError(res, 404, 'not_found_error', `no route for ${req.method} ${path}`)
       return
     }
-    log(`lan relay: ${bareAddress(req.socket.remoteAddress)} → ${path}`)
+    log(`lan relay: ${bareAddress(req.socket.ofmDevice?.address ?? req.socket.remoteAddress)} → ${path}`)
     const headers = { ...req.headers }
     delete headers.host
     delete headers.connection
@@ -789,7 +798,7 @@ async function serveCompletion(req, res, complete, endpoint, heartbeatMs, trace)
         }
         onChunk(chunk)
       }
-      const result = await complete({ ...request, signal: controller.signal }, tracedChunk)
+      const result = await complete({ ...request, signal: controller.signal, deviceIp: req.socket?.ofmDevice?.address ?? undefined }, tracedChunk)
       const outcome = result.error !== undefined ? 'failed' : result.truncated === true ? 'truncated' : 'completed'
       trace.setOutcome(outcome)
       trace.step('generation_finished', { outcome })

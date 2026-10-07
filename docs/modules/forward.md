@@ -20,7 +20,7 @@
 | `startHeartbeat` | function | `startHeartbeat(res, intervalMs) → stop` | 定时写 `: ping\n\n`，timer `unref()`，`stop()` 幂等清理 |
 | `toOpenAiUsage` | function | `toOpenAiUsage(usage) → { prompt_tokens, completion_tokens, total_tokens, prompt_tokens_details: { cached_tokens }, completion_tokens_details: { reasoning_tokens } }` | 上游 usage → OpenAI 拼写（零值桶省略） |
 
-模块私有：`traceRequest`（`performance.now()` 起止与帧阶段诊断）、`bearerOf`、`httpError`、`readBody`（`MAX_BODY_BYTES = 8 * 1024 * 1024`）、`json`、`openAiError`、`isLoopbackIp`、`bareAddress`（`::ffff:` 剥壳）、`proxyHeaderV1`（socket → PROXY v1 行，家族不配对回 `UNKNOWN`）、`parseProxyV1`（6 段/端口/isIP 校验，畸形回 `null`）、`sniffProxyHeader`（首字节嗅探 + `unshift` 回灌 + 2s 握手超时，`socket.ofmDevice` 落值）、`bindFailure`、`listenOnce`、`serveCompletion`、`authorized`、`corsHeaders`、`sendSse`、`openStreamHeaders`、`createToolWire`、`chatCompletions`、`executableCalls`、`responsesEndpoint`、`VIRTUAL_IFACE`（#76 网卡名虚拟正则）。常量：`REQUEST_ID_HEADER = 'x-ofm-request-id'`（16 字节 hex 诊断头）、`COMPLETION_PATHS`、`RELAY_PATHS`、`RELAY_HOP_HEADER = 'x-ofm-relay-hop'`、`PROXY_V1_MAX_BYTES = 108`、`PROXY_V1_PROBE_TIMEOUT_MS = 2000`。
+模块私有：`traceRequest`（`performance.now()` 起止与帧阶段诊断）、`bearerOf`、`httpError`、`readBody`（`MAX_BODY_BYTES = 8 * 1024 * 1024`）、`json`、`openAiError`、`isLoopbackIp`、`bareAddress`（`::ffff:` 剥壳）、`proxyHeaderV1`（socket → PROXY v1 行，`socket.ofmDevice` 认领源优先、家族不配对回 `UNKNOWN` 但认领设备保持家族回退本回环）、`parseProxyV1`（6 段/端口/isIP 校验，畸形回 `null`）、`sniffProxyHeader`（首字节嗅探 + `unshift` 回灌 + 2s 握手超时，`socket.ofmDevice` 落值）、`bindFailure`、`listenOnce`、`serveCompletion`、`authorized`、`corsHeaders`、`sendSse`、`openStreamHeaders`、`createToolWire`、`chatCompletions`、`executableCalls`、`responsesEndpoint`、`VIRTUAL_IFACE`（#76 网卡名虚拟正则）。常量：`REQUEST_ID_HEADER = 'x-ofm-request-id'`（16 字节 hex 诊断头）、`COMPLETION_PATHS`、`RELAY_PATHS`、`RELAY_HOP_HEADER = 'x-ofm-relay-hop'`、`PROXY_V1_MAX_BYTES = 108`、`PROXY_V1_PROBE_TIMEOUT_MS = 2000`。
 
 路由（本地 handle）：`OPTIONS`→204+CORS；`/`、`/health` 免 key 200 `{ok:true, service:'our-free-model'}`；缺 key/错 key→401 `missing or invalid API key`；`GET /v1/models`、`/models`→`modelRows()`；`POST /v1/chat/completions`、`/chat/completions`→`chatCompletions`；`POST /v1/responses`、`/responses`→`responsesEndpoint`；其余→404 `` no route for ${req.method} ${path} ``。中继：每请求校验 `lanKey`（`/health` 也校验，仅 `OPTIONS` 免）、仅放行 `RELAY_PATHS` 同六条、改写为 `Bearer ${settings.localKey}` 并加 `x-ofm-relay-hop: 1`。
 
@@ -79,7 +79,7 @@
 | #24 | 上游 main 已含 | LAN 中继：当前代码 `startLanRelay` + `RELAY_PATHS`/`lanKey`/hop 头/508 拒环即该 PR 落点；同上随 M0 基线带入 |
 | #27 | 源码上游 main 已含；回归用例待补（M1） | tools 二次转换回归：`src/messages.js` 的 `toToolDefs` 双拼写（`tool.function ?? tool`）与 `index.js` 不再预转换均已在位，`scripts/forward-test.mjs` 已含该 PR 的 5 项断言；计划中的第一个独立回归用例落 `test/integration/forward-tools.test`（待建，`test/` 现仅 `unit/config.test.js`）。tools 转换是 `adapter.js` 出口、回归用例落转发层，故两文档互见 |
 | #40 | 已移植（M2，port-of #40） | 中继 PROXY v1 设备 IP：`sniffProxyHeader`/`parseProxyV1`/`proxyHeaderV1`/`bareAddress` 入 `src/forward.js`（`isLoopbackIp` 后），`startForwardServer`/`startLanRelay` 均改 net 前门 + `http.Server` 出站经 `emit('connection')`；中继侧 `http.Agent({keepAlive:false})` + `createConnection` 先写 PROXY 行保证每请求独立连接；6 项断言入 `scripts/forward-test.mjs` |
-| #41 | 待移植（依赖 #40，M1/M3） | 设备 IP → `x-forwarded-for`：全仓 grep 无命中，当前中继不透传来源 IP；须先落 #40 拿到设备 IP |
+| #41 | 已移植（M2，port-of #41） | 设备 IP → `x-forwarded-for`：`serveCompletion` 把 `req.socket.ofmDevice.address` 并进 `complete` 请求（`deviceIp`），`proxyHeaderV1` 认领级联 PROXY 源（`socket.ofmDevice` 优先，家族冲突回退本回环）；下游经 `turn.js → adapter → http → gatewayHeaders`；4 断言入 `scripts/forward-test.mjs`，recovery 端到端 1 断言 |
 | #74 | 待移植（M1/M3） | effort 档位名映射：当前 `chatCompletions`/`responsesEndpoint` 只解析模型名尾缀 `/\(([^()]+)\)\s*$/` 并在未显式给出时拷入 `reasoning_effort` 原样透传，无 OpenAI 档位名别名映射 |
 | #76 | 已移植（M2，port-of #76） | `rankLanAddresses` + `VIRTUAL_IFACE` 落 `src/forward.js`（`startForwardServer` 与 `RELAY_PATHS` 之间），4 项断言入 `scripts/forward-test.mjs`；上游 PR 的面板轮询 API（`GET /forward/lan/addresses`）不适用——zenbox 无 Web UI（§13），重读语义由 banner/status（M4）直接每次现调 |
 
@@ -87,14 +87,14 @@
 
 | 测试 | 覆盖点 |
 | --- | --- |
-| `scripts/forward-test.mjs`（1193 行，67 项 `checkAsync`/`check`） | 工具线序（`tool_calls[].index` 从 0 重排、指纹 decoy 抑制、截断帧 `finish=length`、非流式 `executableCalls` 过滤）；非 JSON 请求体→400；**#76 四断言**（虚拟网卡不领头、组内 OS 原序+IPv6/回环/APIPA 剔除、同址去重、无可用回 `[]`）；**#40 六断言**（PROXY 行归因设备、直连无 `forward:` 行、双连接不串扰、中继两请求各自来源——非池化、畸形 PROXY 拒绝、截断握手按 2s 探测超时死且 HTTP 零字节）；`/v1/responses` 的 `instructions`/`max_output_tokens`/`stream`/`usage`/`incomplete`/`output_index` 分配；#66 reasoning 别名（`reasoning_content`/`reasoning_text`/`reasoning_details`/Anthropic 拼写归并）；#92 无名工具块降级；SSE 心跳（15s 注释帧、`close()` 停止、正常 finish 不动、默认间隔前静默）；`resolveLoopbackBind` 拒绝可路由解析、`classifyBindError` 各类错误码、`bindForwardPort` 等释放/保端口/顺延、`startForwardServer` 回报实际端口；LAN relay 七项（无 key 含 `/health`、空 key、换本机 key 重发、流式承载、非通用代理、503×2、508 自打转）；请求诊断十项（含 LAN 双跳链接、回调抛错、畸形 URL、健康/名单无诊断）；#62 合成行 `model` 来源；`toOpenAiUsage` 归一 |
+| `scripts/forward-test.mjs`（1236 行，71 项 `checkAsync`/`check`） | 工具线序（`tool_calls[].index` 从 0 重排、指纹 decoy 抑制、截断帧 `finish=length`、非流式 `executableCalls` 过滤）；非 JSON 请求体→400；**#76 四断言**（虚拟网卡不领头、组内 OS 原序+IPv6/回环/APIPA 剔除、同址去重、无可用回 `[]`）；**#40 六断言**（PROXY 行归因设备、直连无 `forward:` 行、双连接不串扰、中继两请求各自来源——非池化、畸形 PROXY 拒绝、截断握手按 2s 探测超时死且 HTTP 零字节）；**#41 四断言**（PROXY 设备到达 complete、本地 completion 无 device、中继门上 PROXY 声明的设备传下去而非隧道 socket、`gatewayHeaders` 有/无 `deviceIp` 的 `x-forwarded-for` 两态）；`/v1/responses` 的 `instructions`/`max_output_tokens`/`stream`/`usage`/`incomplete`/`output_index` 分配；#66 reasoning 别名（`reasoning_content`/`reasoning_text`/`reasoning_details`/Anthropic 拼写归并）；#92 无名工具块降级；SSE 心跳（15s 注释帧、`close()` 停止、正常 finish 不动、默认间隔前静默）；`resolveLoopbackBind` 拒绝可路由解析、`classifyBindError` 各类错误码、`bindForwardPort` 等释放/保端口/顺延、`startForwardServer` 回报实际端口；LAN relay 七项（无 key 含 `/health`、空 key、换本机 key 重发、流式承载、非通用代理、503×2、508 自打转）；请求诊断十项（含 LAN 双跳链接、回调抛错、畸形 URL、健康/名单无诊断）；#62 合成行 `model` 来源；`toOpenAiUsage` 归一 |
 | `scripts/test-all.mjs` | 套件表含 `['forward','forward-test.mjs']`，与 effort/truncation/recovery/retry-safety/picker/tui/offline 一键执行 |
 | `test/unit/config.test.js` | `src/config.js` 键校验（`listen`/`lan` 等键名与本模块注入键的对应关系由其把关；转发行为本身不经此文件） |
 
 ## 已知边界
 
 - 本地监听只绑回环（含顺延），对外只通过 LAN 中继的独立门；中继仅放行 `RELAY_PATHS` 三条路径（chat/responses/models 各两种拼写）+ `/`、`/health`，不是通用 HTTP 代理。
-- 中继出站目标写死 `127.0.0.1:targetPort`：#41（设备 IP → `x-forwarded-for`）未移植，归因靠 PROXY v1 头而非 HTTP 头。
+- 中继出站目标写死 `127.0.0.1:targetPort`：设备归因链（PROXY v1 → `deviceIp` → 网关 `x-forwarded-for`）已完整贯通；PROXY 行只在回环上可信，直连本机流量不产生任何来源声明。
 - effort 只认模型名尾缀 `(level)`，不做 OpenAI 档位名别名映射（#74 的 forward 侧 `callerEffort` 未移植，归 M3）；显式 `reasoning_effort` 永远优先于尾缀。
 - SSE 心跳是写给中间代理的注释帧，不重置 `adapter.js`→`http.js` 侧的上游空闲看门狗；上游超时仍由 `postStreamed` 的 300s 截止管。
 - 请求体上限 8MB（`MAX_BODY_BYTES`）；`OPTIONS` 免鉴权（CORS 预检），`/`、`/health` 免本地键但中继侧 `/health` 仍要 `lanKey`。
@@ -107,3 +107,4 @@
 - 2026-10-07 建档（M0，依据上游 fbc3b9b + AGENT-BRIEF）。
 - 2026-10-07 M2：port-of #76 `rankLanAddresses`/`VIRTUAL_IFACE` 落地（`scripts/forward-test.mjs` 四断言红→绿，61 项全绿）。
 - 2026-10-07 M2：port-of #40 PROXY v1 设备地址落地——`sniffProxyHeader` 前门嗅探 + 双监听改造 + 中继非池化 agent 逐请求 PROXY 行（六断言红→绿，67 项全绿）。
+- 2026-10-07 M2：port-of #41 设备 IP 贯穿——`serveCompletion` 传 `deviceIp`、`proxyHeaderV1` 认领级联源、网关 `x-forwarded-for`（四断言红→绿，71 项全绿）。

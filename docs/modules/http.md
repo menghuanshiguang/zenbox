@@ -16,7 +16,7 @@
 | `readHead` | async function | `readHead(stream, limit, { signal, timeoutMs }) → { reader, chunks, done, text, decoder }` | 在 `limit`（`SNIFF_BYTES=4096`）内读体开头；一旦嗅探为 `sse` 立即停（短答案不被拖到 deadline），全程一个 `TextDecoder`（多字节不切断），出错先 `cancel` 再抛 `classifyStreamFailure`。 |
 | `classifyStreamFailure` | function | `classifyStreamFailure(error, signal) → UpstreamError` | 把体读取的任何抛出归一：已是 `UpstreamError` 原样返回；`signal.aborted`/`AbortError` → `ABORTED`（避免 abort 的数字 legacy code `20` 被误判成可重试的 `TRANSPORT`）；其余 → `TRANSPORT` 并附 `transportCause`。 |
 | `replayStream` | function | `replayStream(head) → AsyncIterable<Uint8Array> & { cancel() }` | 把已读的头块 + 后续 reader 重新拼成一条字节流（已读字节被重放，不丢失、不再缓冲），并暴露直连 `cancel()`（async generator 的 `return()` 会排在 pending `next()` 之后）。 |
-| `postStreamed` | async function | `postStreamed({ path, body, session, requestId, attributionUserAgent, signal, onData, timeoutMs = 300000 }) → { status, headers }` | POST 一条流式请求：拼指纹头（`userAgentWith` 合并 attribution 与 `CLIENT_UA`），`redirect:'error'`；非 2xx 读体转 `classifyFailure`（带 `Retry-After` 毫秒数）；2xx 走体窗 → `sse` 则 `readSse(replayStream(head))`，`json` 则单载荷交 `onData`，`unknown` 的 HTML → `CLIENT_ERROR`，其余 → `SERVER`。 |
+| `postStreamed` | async function | `postStreamed({ path, body, session, requestId, attributionUserAgent, deviceIp, signal, onData, timeoutMs = 300000 }) → { status, headers }` | POST 一条流式请求：拼指纹头（`userAgentWith` 合并 attribution 与 `CLIENT_UA`；#41 透传 `deviceIp`→`gatewayHeaders` 的 `x-forwarded-for`），`redirect:'error'`；非 2xx 读体转 `classifyFailure`（带 `Retry-After` 毫秒数）；2xx 走体窗 → `sse` 则 `readSse(replayStream(head))`，`json` 则单载荷交 `onData`，`unknown` 的 HTML → `CLIENT_ERROR`，其余 → `SERVER`。 |
 | `readSse` | async function | `readSse(source, onData, signal, timeoutMs = 300000) → Promise` | 把字节流（`ReadableStream` 或 async iterable）按行切成 `data:` 载荷：丢空行、`:` 注释、`[DONE]`；每个 chunk 重置空闲 deadline（超时 → `TIMEOUT: upstream stream idle past its deadline`）；与 abort 信号赛跑（`ABORTED`），finally 关流并 `releaseLock`。 |
 | `getJson` | async function | `getJson(path, { session, requestId, attributionUserAgent, signal, timeoutMs = 15000 }) → payload` | 带指纹头的小 JSON GET（`accept: application/json`），自建 `AbortController` 区分"本调用超时 → `TIMEOUT`"与"调用方取消 → `ABORTED`"，非 2xx 走 `classifyFailure`。 |
 
@@ -57,6 +57,7 @@
 
 | PR | 处置 | 落点/理由 |
 | --- | --- | --- |
+| #41 | **已移植**（2026-10-07 M2，本仓 commit 见 pr-coverage） | `postStreamed` 形参增 `deviceIp` 并透传 `gatewayHeaders`（本模块）；两态断言在 `scripts/forward-test.mjs`（upstream-forward） |
 | 无直接 PR | 不适用 | 处置矩阵见 docs/pr-coverage.md。其导出的 `postStreamed` 被 `src/adapter.js`、`src/probe.js` 调用（`index.js` 经同一批头的 `getJson` 拉目录），`readSse` 由 `postStreamed` 串联 `replayStream` 后调用并被 `scripts/sniff-test.mjs` 直接驱动；`src/egress.js` 在 `egress.js` 头注释中点名 `postStreamed`/`getJson` 这条依赖方向，并以 `egressFetch` 作为它们的出网通道。 |
 
 （处置矩阵见 docs/pr-coverage.md；本表只列直接落进本模块的。）
@@ -84,3 +85,4 @@
 ## 变更记录
 
 - 2026-10-07 建档（M0，依据上游 fbc3b9b + AGENT-BRIEF）。
+- 2026-10-07 M2 移植 #41：`postStreamed` 增 `deviceIp` 形参透传 `gatewayHeaders`；forward-test `gatewayHeaders` 两态断言红→绿。

@@ -68,6 +68,7 @@
 | PR | 处置 | 落点/理由 |
 | --- | --- | --- |
 | #102 | **已移植**（2026-10-07 M1，本仓 commit 见 pr-coverage） | `systemPromptUpdateFor(modelId)` + `resolveModel` 两分支展开（`src/adapter.js`）+ `types/dsh-llm.d.ts` 声明 `SystemPromptUpdate`/`LlmResolvedModelInfo`；chat/responses 线声明 `'in-history'`，messages 线不声明；测试 `test/unit/adapter.test.js`（adapter-unit） |
+| #41 | **已移植**（2026-10-07 M2，本仓 commit 见 pr-coverage） | `stream` 的 `options.deviceIp` 并入 `postStreamed` 调用（本模块 line ~308）；端到端断言 `scripts/recovery-test.mjs`（deviceIp→网关 `x-forwarded-for`，缺失不带头） |
 | #75 | 待移植（M1/M3） | 配额命中 → `refreshOutletExit({avoid})` 换出口（改 `src/adapter.js` + `src/egress.js` + `index.js`）；**当前代码未含**（`grep onQuotaHit\|refreshOutletExit` 无命中，本模块 catch 仅回调 `onRegionBlocked`）；同 AGENT-BRIEF §6 |
 | #84 | 待移植（M1/M3） | 被拒换同区节点重发且不重复计费（改 `src/adapter.js` + `src/egress.js` + `src/store.js` + `index.js`）；**当前代码未含**（无对应计费/重发路径）；同 AGENT-BRIEF §6 |
 | #27 | 源码上游 main 已含；回归用例待补（M1） | tools 二次转换回归：`toToolDefs` 双拼写在 `src/messages.js` 已在位、`index.js` 不再预转换（无 `toToolDefs` import）、`scripts/forward-test.mjs` 已含其 5 项断言；计划中的独立回归用例落 `test/integration/forward-tools.test`（forward 层，但 `toToolDefs` 是本模块 `payloadFor`→`declared` 的出口，`test/` 现仅 `unit/config.test.js`） |
@@ -103,3 +104,4 @@
 
 - 2026-10-07 建档（M0，依据上游 fbc3b9b + AGENT-BRIEF）。
 - 2026-10-07 M1 移植 #102（`systemPromptUpdateFor` 两分支 + d.ts 声明）；红→绿 `test/unit/adapter.test.js` 4 断言；本文件同步。
+- 2026-10-07 M2 移植 #41：`options.deviceIp` → `postStreamed`；recovery-test 端到端一断言红→绿。

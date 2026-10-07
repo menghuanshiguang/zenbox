@@ -50,6 +50,7 @@
 | #27 | 源码已含；独立回归另立 | `normalizeTool` 展平是 #27 回归（caller tools 抵达上游载荷）的前置换算；回归本体在 `test/integration/forward-tools.test.js` |
 | #113 | 源码已含 | 投影次序本体在 `messages.js`；本模块只负责把调用方 messages 翻成 harness 输入，不动次序 |
 | #102 | 已移植（落点 adapter.js） | `systemPromptUpdate` 声明发生在 `adapter.resolveModel`，不在本模块 |
+| #41 | **已移植**（2026-10-07 M2） | `runForwarded` 把 `request.deviceIp`（PROXY 声明设备，经 `serveCompletion` 并入）以非空字符串条件展开进 `adapter.stream` 的 `options`；本地流量不展开、出站形状不变；断言在 `scripts/forward-test.mjs`（deviceIp 到达 complete）与 `scripts/recovery-test.mjs`（端到端 `x-forwarded-for`） |
 
 ## 测试对照
 
@@ -68,3 +69,4 @@
 ## 变更记录
 
 - 2026-10-07 建档（M1，素材抽自上游 `index.js` fbc3b9b：`fromOpenAiMessages`/`normalizeTool`/`foldForwardOutcome`/`httpError`/`computeMembership`/`routableModelIds`/`publicModelRows`/`runForwarded` 参数化为 `createRunForwarded`）；`scripts/forward-test.mjs` 的 `fromOpenAiMessages` import 从 `index.js` 改指本模块。
+- 2026-10-07 M2 移植 #41：`options` 增 `deviceIp` 条件展开（`request.deviceIp` 非空才带）；forward-test 归因断言红→绿。
