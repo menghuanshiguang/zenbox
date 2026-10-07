@@ -225,6 +225,32 @@ await checkAsync('a non-JSON body answers 400', async () => {
   assert.equal(payload.error.type, 'invalid_request_error')
 })
 
+// 8 MiB 红线（readBody MAX_BODY_BYTES）：超限必须 413 而不是 500 或无限缓冲。
+await checkAsync('a body over 8 MiB answers 413 request body too large', async () => {
+  const lane = makeLane()
+  const base = await serve(lane)
+  const url = new URL(base)
+  const status = await new Promise((resolve, reject) => {
+    const request = http.request({
+      host: url.hostname,
+      port: url.port,
+      path: '/v1/chat/completions',
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer k-test',
+        'content-type': 'application/json',
+        'content-length': 9 * 1024 * 1024,
+      },
+    }, response => {
+      response.resume()
+      resolve(response.statusCode)
+    })
+    request.on('error', reject)
+    request.end(Buffer.alloc(9 * 1024 * 1024, 0x20))
+  })
+  assert.equal(status, 413)
+})
+
 // ── the address a peer on this network should dial (#76) ────────────────────
 // The relay binds every interface, so the address to hand out is a property of
 // the machine right now — and a machine commonly holds two private addresses at
@@ -798,6 +824,28 @@ await checkAsync('a second relay hop is refused instead of spinning', async () =
   const first = await serveRelay({ targetPort: 0, localKey: 'lan-test' })
   const second = await serveRelay({ targetPort: first.port, localKey: 'lan-test' })
   assert.equal((await lanGet(second.base, '/v1/models')).status, 508)
+})
+
+// The relay deserves the same forgiveness the forward listener has (#23's
+// principle): a taken LAN port walks to the next free one instead of taking
+// the whole start down — a portproxy rule or the forward listener itself on
+// the same number must not refuse to boot.
+await checkAsync('a taken LAN port walks to the next free one instead of failing start', async () => {
+  const held = await occupy()
+  assert.ok(held, 'the test needs a squatter to hold a port')
+  const upstream = await localListener(makeLane())
+  const relay = await startLanRelay({
+    config: () => ({ enabled: true, host: '127.0.0.1', port: held.port, lanKey: 'lan-test', localKey: 'k-test', targetPort: upstream.port }),
+    log: () => {},
+  })
+  openServers.push(relay)
+  try {
+    assert.notEqual(relay.port, held.port, `relay fell back off ${held.port} onto ${relay.port}`)
+    assert.equal((await lanGet(`http://127.0.0.1:${relay.port}`, '/v1/models')).status, 200)
+  } finally {
+    await relay.close()
+    await held.release()
+  }
 })
 
 // Request diagnostics must exist before a complete body or usage sample (#34).

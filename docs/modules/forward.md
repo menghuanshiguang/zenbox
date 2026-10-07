@@ -42,7 +42,7 @@
 | `forwardKey` | 首次使用时 `generateKey()` 铸造并持久化 | `forwardKey()` → `config().key` | 本地鉴权键（`Bearer`/`x-api-key` 双拼写） |
 | `forward.lan.enabled` | `false` | `startLanRelay` 的 `config().enabled` | 中继开关；关闭回 503 `the LAN relay is switched off in Our Free Model settings` |
 | `forward.lan.host` | 缺省回落 `'0.0.0.0'`（`SETTINGS_INITIAL.lan` 无 `host` 字段） | `startLanRelay` 绑定 | 中继绑定地址（对外监听） |
-| `forward.lan.port` | `0`（OS 自动分配） | `startLanRelay` 绑定 | 中继端口；实际值回写 settings |
+| `forward.lan.port` | `0`（OS 自动分配） | `startLanRelay` 经 `bindForwardPort` 绑定 | 中继端口；被占同样顺延（`lan bind: …` 日志，返回 `fellBack/requestedPort`）；`fallback:false` 即占用即败 |
 | `forwardLanKey` | 首次 `generateKey()` 铸造 | `relayKey()` → 每请求 `lanKey` | 中继独立键（与本地键分离） |
 | `targetPort`（派生） | `forward?.port ?? 0` | 中继出站 `http.request` | 本机转发实际端口；`≤0` 时 503 `the local forward listener is not running` |
 | `localKey`（派生） | `forwardKey()` | 中继改写请求头 | 出站给回环监听器的键 |
@@ -88,7 +88,7 @@
 
 | 测试 | 覆盖点 |
 | --- | --- |
-| `scripts/forward-test.mjs`（1236 行，71 项 `checkAsync`/`check`） | 工具线序（`tool_calls[].index` 从 0 重排、指纹 decoy 抑制、截断帧 `finish=length`、非流式 `executableCalls` 过滤）；非 JSON 请求体→400；**#76 四断言**（虚拟网卡不领头、组内 OS 原序+IPv6/回环/APIPA 剔除、同址去重、无可用回 `[]`）；**#40 六断言**（PROXY 行归因设备、直连无 `forward:` 行、双连接不串扰、中继两请求各自来源——非池化、畸形 PROXY 拒绝、截断握手按 2s 探测超时死且 HTTP 零字节）；**#41 四断言**（PROXY 设备到达 complete、本地 completion 无 device、中继门上 PROXY 声明的设备传下去而非隧道 socket、`gatewayHeaders` 有/无 `deviceIp` 的 `x-forwarded-for` 两态）；`/v1/responses` 的 `instructions`/`max_output_tokens`/`stream`/`usage`/`incomplete`/`output_index` 分配；#66 reasoning 别名（`reasoning_content`/`reasoning_text`/`reasoning_details`/Anthropic 拼写归并）；#92 无名工具块降级；SSE 心跳（15s 注释帧、`close()` 停止、正常 finish 不动、默认间隔前静默）；`resolveLoopbackBind` 拒绝可路由解析、`classifyBindError` 各类错误码、`bindForwardPort` 等释放/保端口/顺延、`startForwardServer` 回报实际端口；LAN relay 七项（无 key 含 `/health`、空 key、换本机 key 重发、流式承载、非通用代理、503×2、508 自打转）；请求诊断十项（含 LAN 双跳链接、回调抛错、畸形 URL、健康/名单无诊断）；#62 合成行 `model` 来源；`toOpenAiUsage` 归一 |
+| `scripts/forward-test.mjs`（1277 行，77 项 `checkAsync`/`check`） | 工具线序（`tool_calls[].index` 从 0 重排、指纹 decoy 抑制、截断帧 `finish=length`、非流式 `executableCalls` 过滤）；非 JSON 请求体→400；**8MiB 请求体→413**（`MAX_BODY_BYTES` 红线）；**#76 四断言**（虚拟网卡不领头、组内 OS 原序+IPv6/回环/APIPA 剔除、同址去重、无可用回 `[]`）；**#40 六断言**（PROXY 行归因设备、直连无 `forward:` 行、双连接不串扰、中继两请求各自来源——非池化、畸形 PROXY 拒绝、截断握手按 2s 探测超时死且 HTTP 零字节）；**#41 四断言**（PROXY 设备到达 complete、本地 completion 无 device、中继门上 PROXY 声明的设备传下去而非隧道 socket、`gatewayHeaders` 有/无 `deviceIp` 的 `x-forwarded-for` 两态）；**中继端口被占顺延**（squatter 占位 → `startLanRelay` 走 `bindForwardPort` 回落到空闲口且 200 可用）；`/v1/responses` 的 `instructions`/`max_output_tokens`/`stream`/`usage`/`incomplete`/`output_index` 分配；#66 reasoning 别名（`reasoning_content`/`reasoning_text`/`reasoning_details`/Anthropic 拼写归并）；#92 无名工具块降级；SSE 心跳（15s 注释帧、`close()` 停止、正常 finish 不动、默认间隔前静默）；`resolveLoopbackBind` 拒绝可路由解析、`classifyBindError` 各类错误码、`bindForwardPort` 等释放/保端口/顺延、`startForwardServer` 回报实际端口；LAN relay 八项（无 key 含 `/health`、空 key、换本机 key 重发、流式承载、非通用代理、503×2、508 自打转、被占顺延）；请求诊断十项（含 LAN 双跳链接、回调抛错、畸形 URL、健康/名单无诊断）；#62 合成行 `model` 来源；`toOpenAiUsage` 归一 |
 | `scripts/test-all.mjs` | 套件表含 `['forward','forward-test.mjs']`，与 effort/truncation/recovery/retry-safety/picker/tui/offline 一键执行 |
 | `test/unit/config.test.js` | `src/config.js` 键校验（`listen`/`lan` 等键名与本模块注入键的对应关系由其把关；转发行为本身不经此文件） |
 
@@ -110,3 +110,4 @@
 - 2026-10-07 M2：port-of #40 PROXY v1 设备地址落地——`sniffProxyHeader` 前门嗅探 + 双监听改造 + 中继非池化 agent 逐请求 PROXY 行（六断言红→绿，67 项全绿）。
 - 2026-10-07 M2：port-of #41 设备 IP 贯穿——`serveCompletion` 传 `deviceIp`、`proxyHeaderV1` 认领级联源、网关 `x-forwarded-for`（四断言红→绿，71 项全绿）。
 - 2026-10-07 M2：接 §8.1 `listen.fallback`——`config().fallback===false` 时 `attempts:1`（占用即失败），缺省顺延；`bindForwardPort`/`startForwardServer` 补全 JSDoc 形状（options.address/port、config.fallback、heartbeatMs、返回型 requestedPort/fellBack/bindError/host）。
+- 2026-10-07 M2：中继监听改走 `bindForwardPort`（#23 原则）——被占 LAN 口顺延不再炸 start，返回补 `requestedPort/fellBack/bindError`；`forward-test` 加 413 与中继顺延两断言（77 项）；L4 执行器 `test/manual/lan-live.mjs` 实测 PASS（`lan-checklist.md` A 段记录）。

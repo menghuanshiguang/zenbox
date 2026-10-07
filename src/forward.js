@@ -630,10 +630,10 @@ const RELAY_HOP_HEADER = 'x-ofm-relay-hop'
  *   business alone.
  *
  * @param {object} options
- * @param {() => {enabled: boolean, host: string, port: number, lanKey: string, localKey: string, targetPort: number}} options.config
+ * @param {() => {enabled: boolean, host: string, port: number, lanKey: string, localKey: string, targetPort: number, fallback?: boolean}} options.config
  * @param {(message: string) => void} [options.log]
  * @param {(event: object) => void} [options.onTrace] - bounded request diagnostics
- * @returns {Promise<{server: http.Server, port: number, host: string, close: () => Promise<void>}>}
+ * @returns {Promise<{server: object, port: number, requestedPort: number, fellBack: boolean, bindError: object|null, host: string, close: () => Promise<void>}>}
  */
 export async function startLanRelay({ config, log = () => {}, onTrace = () => {} }) {
   const httpServer = http.createServer((req, res) => {
@@ -753,20 +753,23 @@ export async function startLanRelay({ config, log = () => {}, onTrace = () => {}
 
   const desired = config()
   const host = String(desired.host ?? '').trim() || '0.0.0.0'
-  const port = await new Promise((resolve, reject) => {
-    const onError = error => reject(error)
-    front.once('error', onError)
-    const wanted = Number(desired.port)
-    front.listen(Number.isFinite(wanted) && wanted > 0 ? Math.trunc(wanted) : 0, host, () => {
-      front.off('error', onError)
-      front.on('error', error => log(`lan relay error: ${error?.message ?? error}`))
-      resolve(front.address()?.port ?? 0)
-    })
+  // Same forgiveness as the forward listener: a taken LAN port (a portproxy
+  // rule, the forward listener sharing the number) walks to the next free one
+  // instead of taking the whole start down.
+  const bound = await bindForwardPort(front, {
+    address: host,
+    port: desired.port,
+    attempts: desired.fallback === false ? 1 : undefined,
+    log: message => log(`lan bind: ${message}`),
   })
+  front.on('error', error => log(`lan relay error: ${error?.message ?? error}`))
 
   return {
     server: front,
-    port,
+    port: bound.port,
+    requestedPort: bound.requested,
+    fellBack: bound.fellBack,
+    bindError: bound.bindError,
     host,
     close: () => new Promise(resolve => {
       front.close(() => resolve())
