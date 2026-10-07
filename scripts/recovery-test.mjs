@@ -7,7 +7,7 @@ import fs from 'node:fs'
 import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
-import { callRoute, chatFrames, fakeContext, until } from './lib/fake-kernel.mjs'
+import { chatFrames, until } from './lib/fake-kernel.mjs'
 
 let activeCase
 let forwardScenario
@@ -59,6 +59,11 @@ process.env.OUR_FREE_MODEL_BASE = `http://127.0.0.1:${server.address().port}`
 const { FreeModelAdapter, ROUTE_MAIN } = await import('../src/adapter.js')
 const { buildCatalog } = await import('../src/catalog.js')
 const { wireFor } = await import('../src/upstream.js')
+// M1 改编：Forward 口不再经 dsh 宿主 apply()，直接接线 startForwardServer +
+// createRunForwarded + JsonStore——与 start.js 同一条链，语义断言原样保留。
+const { startForwardServer, generateKey } = await import('../src/forward.js')
+const { createRunForwarded, routableModelIds, publicModelRows } = await import('../src/turn.js')
+const { JsonStore, STATS_INITIAL, recordUsage, recordTurn } = await import('../src/store.js')
 
 const MODELS = [
   'mimo-v2.6-flash-free', 'mimo-v2.5-free', 'muse-spark-1.3-contributor-free',
@@ -619,51 +624,56 @@ try {
     })
   }
 
-  const { apply, inject } = await import('../index.js')
   async function withForward(answers, fn) {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ofm-recovery-forward-'))
     const dataDir = path.join(home, 'our-free-model')
-    const originalHome = process.env.DSH_HOME
-    fs.mkdirSync(dataDir)
-    fs.writeFileSync(path.join(dataDir, 'settings.json'), JSON.stringify({
-      distribution: 'managed', forward: { enabled: true, host: '127.0.0.1', port: 0 },
-    }))
-    process.env.DSH_HOME = home
+    fs.mkdirSync(dataDir, { recursive: true })
     const scenario = { answers, models: [model], requests: [], responses: new Set(), timers: [], closed: 0 }
     forwardScenario = scenario
-    const ctx = fakeContext({ inject, mounted: ['llm', 'webServer'] })
-    let api
-    try {
-      apply(ctx, { distribution: 'managed' })
+    const stats = new JsonStore(path.join(dataDir, 'stats.json'), STATS_INITIAL, { log: () => {} })
+    const state = () => ({
+      catalog: CATALOG.map(entry => entry.id),
+      membership: { [ROUTE_MAIN]: MODELS },
+      settings: { enabled: true, defaultMaxTokens: 32768 },
+      attributionUserAgent: 'offline-recovery-test',
+    })
+    const runtimeSettings = {}
+    const adapter = new FreeModelAdapter({
+      state,
+      recordUsage: row => recordUsage(stats, row),
+      recordTurn: row => recordTurn(stats, row),
+      warn: () => {},
+    })
+    const complete = createRunForwarded({
+      getCatalog: () => CATALOG,
+      getState: state,
+      getSettings: () => runtimeSettings,
+      adapter,
+    })
+    const key = generateKey()
+    const forward = await startForwardServer({
+      config: () => ({ enabled: true, host: '127.0.0.1', port: 0, key }),
+      complete,
+      modelRows: () => publicModelRows(CATALOG, routableModelIds(state, runtimeSettings)),
+      log: () => {},
+    })
+    const headers = { authorization: `Bearer ${key}`, 'content-type': 'application/json' }
+    const savedStats = async count => {
+      let saved
       await until(() => {
-        api = ctx.__captured.serverRoutes.find(route => route.kind === 'prefix')?.handler
-        return api !== undefined
-      }, { what: '本地插件设置 API', timeoutMs: 3000 })
-      let summary
-      await until(async () => {
-        summary = await callRoute(api, 'GET', '/api/our-free-model/summary')
-        return summary.json?.settings?.forward?.running === true && summary.json?.probedAt > 0
-      }, { what: '启动探测完成并开启 Forward', timeoutMs: 3000 })
-      const port = summary.json.settings.forward.actualPort
-      const key = JSON.parse(fs.readFileSync(path.join(dataDir, 'settings.json'), 'utf8')).forwardKey
-      const headers = { authorization: `Bearer ${key}`, 'content-type': 'application/json' }
-      const savedStats = async count => {
-        let saved
-        await until(() => {
-          saved = JSON.parse(fs.readFileSync(path.join(dataDir, 'stats.json'), 'utf8'))
-          return saved.samples?.length === count
-        }, { what: `${count} 条物理请求统计落盘`, timeoutMs: 3000 })
-        return saved
-      }
-      await fn({ scenario, headers, base: `http://127.0.0.1:${port}`, savedStats })
+        saved = JSON.parse(fs.readFileSync(path.join(dataDir, 'stats.json'), 'utf8'))
+        return saved.samples?.length === count
+      }, { what: `${count} 条物理请求统计落盘`, timeoutMs: 3000 })
+      return saved
+    }
+    try {
+      await fn({ scenario, headers, base: `http://127.0.0.1:${forward.port}`, savedStats })
     } finally {
-      if (api) await callRoute(api, 'POST', '/api/our-free-model/settings', { forward: { enabled: false } })
-      for (const dispose of ctx.__disposers.reverse()) dispose()
+      await forward.close()
       for (const timer of scenario.timers) clearTimeout(timer)
       for (const response of scenario.responses) response.destroy()
       forwardScenario = undefined
-      if (originalHome === undefined) delete process.env.DSH_HOME
-      else process.env.DSH_HOME = originalHome
+      stats.dispose()
       fs.rmSync(home, { recursive: true, force: true })
     }
   }
