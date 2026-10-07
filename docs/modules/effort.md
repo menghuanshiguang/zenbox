@@ -51,23 +51,25 @@
 
 | PR | 处置 | 落点/理由 |
 | --- | --- | --- |
-| #74 | 待移植（M3） | `reasoning_effort` minimal/low/medium/high/none ↔ light/balanced/deep 的映射与 `/v1/models` 暴露档位；**当前代码未含**——`effortsFor` 只输出 token 梯子或模型声明菜单，wire 请求不携带任何 reasoning_effort 字段，清单也不暴露档位 |
+| #74 | 已移植（M1 effort 单元；forward 侧待 M2/M3） | `LEVEL_ALIASES` + `normalizeLevel` + `resolveLevel` 梯子分支走归一（`src/effort.js`）：minimal/low/none/off/disabled→light、medium→balanced、high/xhigh/max→deep，大小写与首尾空格不敏感；**声明菜单模型分支保持自身 id 精确匹配，别名不劫持**。未落：`src/forward.js` 的 `callerEffort` 三门提升与 `/v1/models` 行的 `x_ofm_efforts`/`x_ofm_effort_default` 暴露（M2/M3 forward 落位时同提交）。测试 `test/unit/effort.test.js`（effort-unit，16 断言） |
 
 ## 测试对照
 
 | 测试 | 覆盖点 |
 | --- | --- |
 | `scripts/effort-test.mjs` | 实测通过（尾行 `effort: the ladder is the budget`）：`canDisableThinking` 目录位；梯子翻倍（mimo `[4096,16384,32768]`、muse `[2048,8192,32768]`、无档位模型三档全为窗口 32768）；`isDefault` 只标 `balanced`；会话 ceiling/插件默认/模型容量/`MIN_BUDGET` 四重 min；0/负数/非数字 fallback 读作无上限而数值仍钳制；`resolveLevel` 三态（菜单缺档回菜单默认、无菜单模型不套档、未知档回 `DEFAULT_LEVEL`）；真 adapter 实发 `max_tokens` 与 `usage.effort` 记录一致（含未知档记为回落后的默认）；DSML 控制标记清洗不影响正文与工具 |
+| `test/unit/effort.test.js` | #74 单元（effort-unit，16 断言）：`normalizeLevel` 别名全表+大小写空格+非字符串；`resolveLevel` 别名解析/未知词落默认/无菜单不套档/**菜单分支不被别名劫持**；`budgetFor` none/off/disabled→最小档 4096 与 OpenAI 写法同预算；核心导出 `DEFAULT_LEVEL`/`MIN_BUDGET`/`budgetLadder`/`supportsEffort`/`hasDeclaredEffortMenu`/`defaultEffortFor`/`effortsFor` 各 ≥1 断言 |
 | `scripts/probes/long-answer.mjs` | 以 `budgetFor` 驱动长回答预算探针（辅助） |
 
 ## 已知边界
 
 - 档位的全部效力来自 `max_tokens`：天花板同时约束思考与正文，低档位缩短的是两者的总和，这是本车道唯一可用的调制手段（模块注释的实测依据）。
 - 声明菜单模型不做梯子：其上限恒为模型容量，因为 wire 上的控制量是 effort 字段而非 token 数。
-- #74 的上游映射与 `/v1/models` 档位暴露当前代码未含，移植 M3 前 `effortsFor` 的 id 集恒为 `light/balanced/deep`（菜单模型为 `efforts` 声明集）。
+- #74 的别名映射已于 M1 移植（`normalizeLevel`）；`/v1/models` 行的 `x_ofm_efforts`/`x_ofm_effort_default` 暴露与 `src/forward.js` 的 `callerEffort` 三门提升仍在 forward 落位时（M2/M3）实现。移植前 `effortsFor` 的 id 集恒为 `light/balanced/deep`（菜单模型为 `efforts` 声明集）。
 - 不处理重试、配额、记录：`providerRetryPolicy` 的 `retryableCodes` 在 `src/adapter.js`，统计在 `src/store.js`。
 
 ## 变更记录
 
 - 2026-10-07 建档（M0，依据上游 fbc3b9b + AGENT-BRIEF）。
 - M0（cut 5b84917）本仓库改动：`eacDefaultLevel` → `menuDefaultLevel` 改名、`kilos` → `roundK` 改名（EAC 车道痕迹清除，4 处调用点同步）。
+- 2026-10-07 M1 移植 #74（effort 侧）：新增 `LEVEL_ALIASES`/`normalizeLevel`，`resolveLevel` 梯子分支归一；菜单分支保持精确匹配。红→绿 `test/unit/effort.test.js` 16 断言；本文件同步。

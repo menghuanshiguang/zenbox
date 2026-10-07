@@ -6,6 +6,7 @@
     "doc-sync": "test/meta/gates.test.js",
     "forward-tools": "test/integration/forward-tools.test.js",
     "adapter-unit": "test/unit/adapter.test.js",
-    "messages-projection": "test/unit/messages-projection.test.js"
+    "messages-projection": "test/unit/messages-projection.test.js",
+    "effort-unit": "test/unit/effort.test.js"
   }
 }
