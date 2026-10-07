@@ -1,170 +1,369 @@
 #!/usr/bin/env node
 /**
- * zenbox CLI 入口（AGENT-BRIEF §8.5）。
+ * zenbox — 一条命令起的 opencode 免费模型中继（AGENT-BRIEF §8）。
  *
- * 命令: start | status | models | probe | key | doctor，通用 --json。
- * M0 现状: start 打印 banner 并空转（监听/后台轮按 §6 分别在 M1/M2/M4 接入），
- * 其余命令如实标注可用性；任何配置错误以退出码 1 拒绝启动。
+ * 启动时序（§3，PR #72 教训不可改）：loadConfig → init store(0600 Key) →
+ * bindForwardPort + startLanRelay（监听先行）→ printBanner（异步行补位）→
+ * 后台轮（清单/探测/出口 IP，M3/M4 接入）→ 前台日志。网络轮失败只记日志，
+ * 永不阻塞监听。
  *
- * @module start.js
+ * M2 起 start 不是空壳：Key 落盘（0600）、本机转发口与 LAN 中继真绑定、
+ * 转发链路由 src/turn.js createRunForwarded + FreeModelAdapter + JsonStore
+ * 组装——与 scripts/recovery-test.mjs 的 withForward 同一条链。
  */
 import process from 'node:process'
 import { ConfigError, loadConfig } from './src/config.js'
+import { startForwardServer, startLanRelay } from './src/forward.js'
+import { FreeModelAdapter } from './src/adapter.js'
+import { createRunForwarded, computeMembership, routableModelIds, publicModelRows } from './src/turn.js'
+import { JsonStore, STATS_INITIAL, recordUsage, recordTurn, ensureKey, rotateKey, readKey } from './src/store.js'
+import { FALLBACK_CATALOG } from './src/catalog.js'
 
 export const VERSION = '0.1.0'
 const COMMANDS = ['start', 'status', 'models', 'probe', 'key', 'doctor']
 const NO_JSON = new Set(['start'])
+/** 运行时恒定设置：探测轮（M3）落地后 status.models 才会有分桶，这里只定通路。 */
+const RUNTIME_SETTINGS = { enabled: true, exposeRegionModels: true, defaultMaxTokens: 32768 }
+/** 尚无探测裁决——computeMembership 对无裁决条目全量放行（turn.js 注释语义）。 */
+const AVAILABILITY_EMPTY = { results: {} }
 
-/** @param {string[]} argv @returns {{command: string, flags: string[], json: boolean, argv: string[]}} */
-function parseArgv(argv) {
-  const positional = []
-  const flags = []
-  let json = false
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i]
-    if (arg === '--json') json = true
-    else if (arg.startsWith('--')) flags.push(arg)
-    else positional.push(arg)
-  }
-  const command = positional[0] ?? 'start'
-  return { command, flags, json, argv }
-}
+/** @param {string} key */
+const tail4 = key => (typeof key === 'string' && key !== '' ? key.slice(-4) : '')
 
 /** @param {string} message */
 function fail(message) {
-  process.stderr.write(`${message}\n`)
+  process.stderr.write(`错误: ${message}\n`)
   process.exitCode = 1
 }
 
-/** @param {string[]} argv @returns {import('./src/config.js').ZenConfig} */
+/**
+ * 解析 argv：首参为命令，`--json` 标志单列，其余原样交给 loadConfig 的
+ * flag 层（flag > OFM_* env > 文件 > 默认）。
+ * @param {string[]} argv
+ * @returns {{command: string, positional: string[], flags: string[], json: boolean, argv: string[]}}
+ */
+export function parseArgv(argv) {
+  const positional = []
+  const flags = []
+  let json = false
+  for (const item of argv) {
+    if (item === '--json') json = true
+    else if (item.startsWith('--')) flags.push(item)
+    else positional.push(item)
+  }
+  return { command: positional[0] ?? 'start', positional, flags, json, argv }
+}
+
+/**
+ * @param {string[]} argv
+ * @returns {ReturnType<typeof loadConfig>}
+ */
 function loadOrDie(argv) {
   try {
-    return loadConfig({ argv, env: process.env })
+    return loadConfig({ argv })
   } catch (error) {
-    if (error instanceof ConfigError) fail(`配置错误 [${error.field}]: ${error.message}`)
-    else fail(`配置加载失败: ${error instanceof Error ? error.message : String(error)}`)
+    if (error instanceof ConfigError) fail(`${error.message}（字段: ${error.field}）`)
+    else fail(error instanceof Error ? error.message : String(error))
     process.exit(1)
-    throw error
+    throw error // process.exit 不返回；抛出收口让 TS 认可控制流
   }
 }
 
-/** §8.4 banner。M0 只打印已存在的事实，未接线的字段如实标 pending。
- * @param {import('./src/config.js').ZenConfig} config
+/**
+ * §8.4 banner。runtime 为监听绑定后的实况；缺省时状态如实标 pending/未生成，
+ * 不编造地址（status 会先探测再传入）。
+ *
+ * @param {ReturnType<typeof loadConfig>} config
  * @param {(line: string) => void} [out]
+ * @param {{port?: number, requestedPort?: number, fellBack?: boolean, keyTail?: string, relayUp?: boolean, lanPort?: number, models?: number}} [runtime]
  */
-export function printBanner(config, out = line => process.stdout.write(`${line}\n`)) {
-  const lanState = config.lan.enabled
-    ? `${config.lan.host}:${config.lan.port}（M2 接入）`
-    : '关闭（--lan host:port 开启）'
+export function printBanner(config, out = line => process.stdout.write(`${line}\n`), runtime = {}) {
+  const port = runtime.port ?? config.listen.port
+  const moved = runtime.fellBack === true && typeof runtime.requestedPort === 'number' && runtime.requestedPort !== port
+  const lanState = !config.lan.enabled
+    ? '关闭（config lan.enabled=true 或 --lan 开启，独立 Key 与本机不通用）'
+    : runtime.relayUp === true
+      ? `${config.lan.host}:${runtime.lanPort ?? config.lan.port}（中继监听中，LAN 独立 Key）`
+      : `${config.lan.host}:${config.lan.port}（未监听——start 运行中才绑定）`
+  const keyLine = runtime.keyTail
+    ? `尾4 ${runtime.keyTail}（data/forward-key，0600）`
+    : '未生成（首次 start 生成 data/forward-key，0600）'
+  const modelsLine = typeof runtime.models === 'number'
+    ? `${runtime.models} 个（静态回退清单；探测分桶 M3 后台轮补）`
+    : '等待首次刷新（M3 后台轮补行）'
   out(`zenbox v${VERSION} · opencode 免费模型中继`)
   out(`配置文件   ${config.configPath ?? '（无，使用默认值）'}`)
-  out(`本机转发   ${config.listen.host}:${config.listen.port}（M1 bind）`)
+  out(`本机转发   ${config.listen.host}:${port}${moved ? `（端口被占，已顺延自 ${runtime.requestedPort}）` : ''}`)
   out(`局域网     ${lanState}`)
-  out(`上游       ${config.upstream.baseUrl}（超时 ${config.upstream.timeoutMs}ms）`)
+  out(`上游       ${config.upstream.base}（超时 ${config.upstream.timeoutMs}ms）`)
   out(`出口       ${config.egress.mode}`)
-  out(`Key        未生成（M1: data/ 0600 落盘后显示尾4）`)
-  out(`模型清单   等待首次刷新（M1 后台轮补行）`)
-  out(`公网出口IP 等待后台刷新（M4 补行）`)
+  out(`Key        ${keyLine}`)
+  out(`模型清单   ${modelsLine}`)
+  out('公网出口IP 等待后台刷新（M4 行）')
 }
 
-/** @param {import('./src/config.js').ZenConfig} config */
-function statusReport(config) {
+/**
+ * 探测一个 HTTP 监听口：`/health` 应答即视为在场。0.0.0.0/:: 归一到回环，
+ * IPv6 字面量加括号。仅回环请求，不出网。
+ *
+ * @param {string} host
+ * @param {number} port
+ * @returns {Promise<'up'|'down'>}
+ */
+async function probeHealth(host, port) {
+  let target = host === '0.0.0.0' || host === '::' ? '127.0.0.1' : host
+  if (target.includes(':') && !target.startsWith('[')) target = `[${target}]`
+  try {
+    const res = await fetch(`http://${target}:${port}/health`, { signal: AbortSignal.timeout(800) })
+    return res.ok ? 'up' : 'down'
+  } catch {
+    return 'down'
+  }
+}
+
+/**
+ * status 报告（§8.2）：端口在场、Key 尾4 与来源、上游/出口/effort、模型数。
+ * 公网 IP 与探测摘要属 M4/M3 后台轮，这里如实列 pending。
+ *
+ * @param {ReturnType<typeof loadConfig>} config
+ */
+async function statusReport(config) {
+  const forwardHealth = await probeHealth(config.listen.host, config.listen.port)
+  const relayHealth = config.lan.enabled ? await probeHealth(config.lan.host, config.lan.port) : 'disabled'
+  const forwardKey = readKey(config.data, 'forward-key', config.listen.key)
+  const lanKey = config.lan.enabled ? readKey(config.data, 'lan-key', config.lan.key) : null
   return {
     version: VERSION,
     configPath: config.configPath,
     listen: `${config.listen.host}:${config.listen.port}`,
     lan: config.lan.enabled ? `${config.lan.host}:${config.lan.port}` : 'disabled',
-    upstream: config.upstream.baseUrl,
+    upstream: config.upstream.base,
     effort: config.effort,
     egress: config.egress.mode,
     data: config.data,
-    listeners: 'pending (M1/M2)',
-    key: 'pending (M1)',
+    listeners: { forward: forwardHealth, lan: relayHealth },
+    key: { source: forwardKey.source, tail4: tail4(forwardKey.key) },
+    lanKey: lanKey ? { source: lanKey.source, tail4: tail4(lanKey.key) } : null,
+    models: FALLBACK_CATALOG.length,
+    pending: ['公网出口IP（M4 ipinfo）', '最近探测摘要（M3 probe 轮）'],
   }
 }
 
-/** @param {import('./src/config.js').ZenConfig} config */
-function doctorReport(config) {
-  const checks = []
-  const nodeOk = process.versions.node >= '22.19.0'
-  checks.push({ name: 'node>=22.19', ok: nodeOk, detail: process.versions.node })
-  checks.push({ name: 'config-valid', ok: true, detail: config.configPath ?? 'defaults' })
-  checks.push({ name: 'listeners', ok: false, detail: 'pending (M1/M2 接入 bind 后转绿）' })
-  checks.push({ name: 'upstream-reachable', ok: false, detail: 'pending (M4 doctor 实测)' })
-  return { version: VERSION, ok: checks.every(check => check.ok), checks }
-}
-
-/** @type {Record<string, (config: import('./src/config.js').ZenConfig, opts: {json: boolean}) => void>} */
+/**
+ * @type {Record<string, (config: ReturnType<typeof loadConfig>, opts: {json: boolean, flags: string[], rotate?: boolean}) => any>}
+ */
 const commands = {
-  start(config) {
-    printBanner(config)
-    process.stdout.write('[start] M0 脚手架：监听与后台轮按 §6 在 M1/M2/M4 接入；进程保持前台日志。\n')
-    const heartbeat = setInterval(() => {
-      process.stdout.write(`[heartbeat] ${new Date().toISOString()} 前台日志（M1 起替换为请求日志）\n`)
-    }, 60_000)
-    // 测试钩子: OFM_SMOKE_MS=2000 时到点自动优雅退出（CI 冒烟用，真实启动不设）
-    const smokeMs = Number(process.env.OFM_SMOKE_MS)
-    if (Number.isFinite(smokeMs) && smokeMs > 0) {
-      setTimeout(() => shutdown('SMOKE'), smokeMs)
+  // —— start：Key 落盘 → 组装运行链 → 监听先行 → banner → 前台日志 ——
+  async start(config) {
+    /** @type {(line: string) => void} */
+    const log = line => process.stdout.write(`${line}\n`)
+    // ① init store：Key 0600（§8.1 key 空=首次生成写 data/）
+    const forwardKey = ensureKey(config.data, 'forward-key', config.listen.key)
+    const lanKey = config.lan.enabled ? ensureKey(config.data, 'lan-key', config.lan.key) : null
+    const stats = new JsonStore(`${config.data}/stats.json`, STATS_INITIAL, { log: () => {} })
+    // ② 运行链组装（与 recovery-test withForward 同构）：availability 空 = 无裁决全放行，
+    //    M3 probe 轮落 data/availability.json 后在此重放。
+    const availability = AVAILABILITY_EMPTY
+    const state = () => ({
+      catalog: FALLBACK_CATALOG,
+      membership: /** @type {Record<string, string[]>} */ (computeMembership(FALLBACK_CATALOG, availability, RUNTIME_SETTINGS)),
+      settings: RUNTIME_SETTINGS,
+      attributionUserAgent: 'zenbox',
+    })
+    const adapter = new FreeModelAdapter({
+      state,
+      recordUsage: row => recordUsage(stats, row),
+      recordTurn: row => recordTurn(stats, row),
+      warn: message => log(`[warn] ${message}`),
+    })
+    const complete = createRunForwarded({
+      getCatalog: () => FALLBACK_CATALOG,
+      getState: state,
+      getSettings: () => RUNTIME_SETTINGS,
+      adapter,
+    })
+    // ③ 监听先行：本机转发口（Key 每请求经 readKey 重读，rotate 后旧 Key 即刻 401）
+    const forward = await startForwardServer({
+      config: () => ({
+        enabled: true,
+        host: config.listen.host,
+        port: config.listen.port,
+        key: readKey(config.data, 'forward-key', config.listen.key).key,
+        fallback: config.listen.fallback,
+      }),
+      complete,
+      modelRows: () => publicModelRows(FALLBACK_CATALOG, routableModelIds(state, RUNTIME_SETTINGS)),
+      log: line => log(`[forward] ${line}`),
+    })
+    // ④ LAN 中继（默认关；独立 Key，targetPort 指向本机转发口）
+    let relay = null
+    if (config.lan.enabled) {
+      relay = await startLanRelay({
+        config: () => ({
+          enabled: true,
+          host: config.lan.host,
+          port: config.lan.port,
+          lanKey: readKey(config.data, 'lan-key', config.lan.key).key,
+          localKey: readKey(config.data, 'forward-key', config.listen.key).key,
+          targetPort: forward.port,
+        }),
+        log: line => log(`[relay] ${line}`),
+      })
     }
-    /** @param {string} signal */
-    const shutdown = signal => {
+    // ⑤ banner：绑定后实况（顺延/Key 尾4/中继在场/静态清单数）
+    printBanner(config, undefined, {
+      port: forward.port,
+      requestedPort: forward.requestedPort,
+      fellBack: forward.fellBack,
+      keyTail: tail4(forwardKey.key),
+      relayUp: relay !== null,
+      lanPort: relay?.port,
+      models: FALLBACK_CATALOG.length,
+    })
+    log(`[listen] 转发口 ${config.listen.host}:${forward.port}${forward.fellBack && forward.requestedPort !== forward.port ? `（顺延自 ${forward.requestedPort}）` : ''} · Key 尾4 ${tail4(forwardKey.key)}`)
+    if (relay !== null) log(`[listen] 中继口 ${relay.host}:${relay.port} · LAN 独立 Key 尾4 ${tail4(lanKey?.key ?? '')}`)
+    // ⑥ 优雅关闭：SIGINT/SIGTERM/冒烟钩子共用一条路
+    let closing = false
+    const heartbeat = setInterval(() => log(`[heartbeat] ${new Date().toISOString()} 在线`), 60_000)
+    /** @type {(signal: string) => Promise<void>} */
+    const shutdown = async signal => {
+      if (closing) return
+      closing = true
       clearInterval(heartbeat)
-      process.stdout.write(`[stop] 收到 ${signal}，优雅关闭（M0 无监听器需要回收）\n`)
+      log(`[stop] 收到 ${signal}，优雅关闭（中继/转发口回收 + 统计落盘）`)
+      try { if (relay !== null) await relay.close() } catch { /* 关闭尽力 */ }
+      try { await forward.close() } catch { /* 关闭尽力 */ }
+      stats.dispose()
       process.exit(0)
     }
-    process.on('SIGINT', () => shutdown('SIGINT'))
-    process.on('SIGTERM', () => shutdown('SIGTERM'))
+    process.on('SIGINT', () => void shutdown('SIGINT'))
+    process.on('SIGTERM', () => void shutdown('SIGTERM'))
+    const smokeMs = Number(process.env.OFM_SMOKE_MS)
+    if (Number.isFinite(smokeMs) && smokeMs > 0) setTimeout(() => void shutdown('SMOKE'), smokeMs)
+    // ⑦ 前台日志：请求行由 [forward]/[relay] 前缀流出；后台轮（清单/探测/出口IP）M3/M4 接入
+    return undefined
   },
 
-  status(config, { json }) {
-    const report = statusReport(config)
-    if (json) process.stdout.write(`${JSON.stringify(report, null, 2)}\n`)
-    else {
-      printBanner(config)
-      process.stdout.write(`[status] listeners=${report.listeners} key=${report.key}\n`)
+  // —— status：监听在场探测 + Key 尾4（§8.2）——
+  async status(config, { json }) {
+    const report = await statusReport(config)
+    if (json) {
+      process.stdout.write(`${JSON.stringify(report, null, 2)}\n`)
+      return
     }
+    printBanner(config, undefined, {
+      keyTail: report.key.tail4,
+      models: report.models,
+      relayUp: report.listeners.lan === 'up',
+      lanPort: config.lan.port,
+    })
+    process.stdout.write(`[status] forward=${report.listeners.forward} lan=${report.listeners.lan} key=${report.key.source}/尾4 ${report.key.tail4 || '无'}（中继 ${report.key.source === 'config' && !config.lan.enabled ? '关' : report.listeners.lan}）\n`)
+    if (report.pending.length > 0) process.stdout.write(`[pending] ${report.pending.join('；')}\n`)
   },
 
+  // —— models：静态回退清单 + routable 门（§8.2；探测分桶 M3 接入）——
   models(config, { json }) {
-    const report = { available: false, reason: 'M1 接入上游清单后可用', models: [] }
-    if (json) process.stdout.write(`${JSON.stringify(report)}\n`)
-    else process.stdout.write('[models] 未接入（M1：catalog 后台轮）。配置模型清单: config.catalog.refreshMinutes\n')
+    const membership = computeMembership(FALLBACK_CATALOG, AVAILABILITY_EMPTY, RUNTIME_SETTINGS)
+    const rows = /** @type {{id: string, context_window?: number}[]} */ (publicModelRows(FALLBACK_CATALOG, routableModelIds(() => ({ membership }), RUNTIME_SETTINGS)))
+    const report = {
+      available: rows.length,
+      models: rows.map(row => ({ id: row.id, context_window: row.context_window ?? null })),
+      verdicts: 'unknown（M3 probe 轮接入后分 available/region-limited/removed 带拒因）',
+    }
+    if (json) {
+      process.stdout.write(`${JSON.stringify(report, null, 2)}\n`)
+      return
+    }
+    process.stdout.write(`[models] ${report.available} 个模型（静态回退清单；${report.verdicts}）\n`)
+    for (const row of report.models) process.stdout.write(`  - ${row.id}${row.context_window ? `（ctx ${row.context_window}）` : ''}\n`)
   },
 
+  // —— probe：M3 后台轮接入；配置节奏如实展示——
   probe(config, { json }) {
-    const report = { available: false, reason: 'M3 接入 probe 轮询后可用', config: { enabled: config.probe.enabled, intervalMinutes: config.probe.intervalMinutes, concurrency: config.probe.concurrency } }
-    if (json) process.stdout.write(`${JSON.stringify(report)}\n`)
-    else process.stdout.write('[probe] 未接入（M3：可用性探测轮）。配置: config.probe.*\n')
-  },
-
-  key(config, { json }) {
-    const report = { available: false, reason: 'M1 接入 store 后可用（0600 落盘 / rotate）' }
-    if (json) process.stdout.write(`${JSON.stringify(report)}\n`)
-    else process.stdout.write('[key] 未接入（M1：store 0600 落盘；key rotate 同步）\n')
-  },
-
-  doctor(config, { json }) {
-    const report = doctorReport(config)
+    const report = {
+      enabled: config.probe.enabled,
+      intervalMinutes: config.probe.intervalMinutes,
+      concurrency: config.probe.concurrency,
+      timeoutMs: config.probe.timeoutMs,
+      lastRound: null,
+      pending: 'M3 probe 轮接入（data/availability.json 落盘）',
+    }
     if (json) process.stdout.write(`${JSON.stringify(report, null, 2)}\n`)
-    else for (const check of report.checks) process.stdout.write(`[${check.ok ? 'OK' : 'PENDING'}] ${check.name}: ${check.detail}\n`)
+    else process.stdout.write(`[probe] enabled=${report.enabled} 每 ${report.intervalMinutes}min 并发 ${report.concurrency} 超时 ${report.timeoutMs}ms —— ${report.pending}\n`)
+  },
+
+  // —— key：查看尾4 / rotate 轮换（旧 Key 即刻 401，§8.2）——
+  key(config, { json, flags = [], rotate = false }) {
+    const targetLan = flags.includes('--lan')
+    const name = targetLan ? 'lan-key' : 'forward-key'
+    const explicit = targetLan ? config.lan.key : config.listen.key
+    if (rotate) {
+      if (explicit !== '') {
+        const report = { rotated: false, target: name, reason: `${targetLan ? 'lan' : 'listen'}.key 在 config 显式指定，文件轮换不生效——请清空该键后重试` }
+        if (json) process.stdout.write(`${JSON.stringify(report, null, 2)}\n`)
+        else process.stderr.write(`[key] ${report.reason}\n`)
+        process.exitCode = 1
+        return
+      }
+      const next = rotateKey(config.data, name)
+      const report = { rotated: true, target: name, tail4: tail4(next.key), path: `${config.data}/${name}` }
+      if (json) process.stdout.write(`${JSON.stringify(report, null, 2)}\n`)
+      else process.stdout.write(`[key] 已轮换 ${name} → 尾4 ${report.tail4}（旧 Key 即刻 401）\n`)
+      return
+    }
+    const snapshot = readKey(config.data, name, explicit)
+    const report = {
+      target: name,
+      source: snapshot.source,
+      tail4: tail4(snapshot.key),
+      exists: snapshot.key !== '',
+      path: snapshot.source === 'file' ? `${config.data}/${name}` : null,
+    }
+    if (json) process.stdout.write(`${JSON.stringify(report, null, 2)}\n`)
+    else process.stdout.write(snapshot.key !== ''
+      ? `[key] ${name} 尾4 ${report.tail4}（${snapshot.source}）\n`
+      : `[key] ${name} 未生成（首次 start 生成 data/${name}，0600）\n`)
+  },
+
+  // —— doctor：node/配置/监听在场/Key/upstream（upstream 自检 M4 接入，如实 PENDING）——
+  async doctor(config, { json }) {
+    const [major, minor] = process.versions.node.split('.').map(Number)
+    const forwardHealth = await probeHealth(config.listen.host, config.listen.port)
+    const relayHealth = config.lan.enabled ? await probeHealth(config.lan.host, config.lan.port) : 'disabled'
+    const keySnap = readKey(config.data, 'forward-key', config.listen.key)
+    const checks = [
+      { name: 'node', ok: major > 22 || (major === 22 && minor >= 19), detail: process.version },
+      { name: 'config-valid', ok: true, detail: config.configPath ?? '（默认值）' },
+      { name: 'listeners', ok: forwardHealth === 'up', detail: `forward=${forwardHealth} lan=${relayHealth}${forwardHealth === 'up' ? '' : '（start 未运行？）'}` },
+      { name: 'key', ok: keySnap.key !== '', detail: `${keySnap.source}/尾4 ${tail4(keySnap.key) || '无'}` },
+      { name: 'upstream-reachable', ok: false, detail: 'PENDING（M4 健康自检接入；本轮不真出网）' },
+    ]
+    const report = { version: VERSION, ok: checks.every(check => check.ok), checks }
+    if (json) process.stdout.write(`${JSON.stringify(report, null, 2)}\n`)
+    else for (const check of checks) process.stdout.write(`${check.ok ? '[OK] ' : '[PENDING] '}${check.name}: ${check.detail}\n`)
     if (!report.ok) process.exitCode = 1
   },
 }
 
 /** @param {string[]} argv */
 function main(argv) {
-  const { command, flags, json, argv: rest } = parseArgv(argv)
+  const { command, positional, flags, json, argv: rest } = parseArgv(argv)
   if (!COMMANDS.includes(command)) {
-    fail(`未知命令: ${command}（可选 ${COMMANDS.join('|')}）`)
+    fail(`未知命令 "${command}"。可用: ${COMMANDS.join(' / ')}（--json 输出机器可读报告）`)
     return
   }
   if (json && NO_JSON.has(command)) {
-    fail(`--json 不适用于 ${command} 命令`)
+    fail(`--json 不适用于 start（启动日志是流式文本）`)
     return
   }
   const config = loadOrDie(rest)
-  commands[command](config, { json })
+  Promise.resolve(commands[command](config, { json, flags, rotate: positional[1] === 'rotate' })).catch(error => {
+    fail(`执行失败: ${error instanceof Error ? error.message : String(error)}`)
+    process.exit(1)
+  })
 }
 
-main(process.argv.slice(2))
+// 仅直接执行时启动；被 import（测试、脚本取导出）不拉起 main。
+import { fileURLToPath } from 'node:url'
+const invoked = process.argv[1] ? fileURLToPath(new URL(`file://${process.argv[1].replace(/\\/g, '/')}`)) : ''
+if (invoked === fileURLToPath(import.meta.url)) main(process.argv.slice(2))

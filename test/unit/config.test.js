@@ -36,8 +36,9 @@ check('DEFAULTS: §8 默认值', () => {
   assert.equal(DEFAULTS.lan.enabled, false)
   assert.equal(DEFAULTS.lan.host, '0.0.0.0')
   assert.equal(DEFAULTS.lan.port, 18899)
-  assert.equal(DEFAULTS.lan.separateKey, false)
-  assert.equal(DEFAULTS.upstream.baseUrl, 'https://opencode.ai')
+  assert.equal(DEFAULTS.lan.key, '')
+  assert.equal('separateKey' in DEFAULTS.lan, false, '§8.1 用 lan.key 独立 Key，separateKey 已废')
+  assert.equal(DEFAULTS.upstream.base, 'https://opencode.ai')
   assert.equal(DEFAULTS.upstream.timeoutMs, 45000)
   assert.equal(DEFAULTS.catalog.refreshMinutes, 30)
   assert.equal(DEFAULTS.probe.enabled, true)
@@ -62,7 +63,7 @@ check('validate: 端口 0 被拒', () => {
   expectConfigError(() => validateConfig({ ...structuredClone(DEFAULTS), listen: { host: '127.0.0.1', port: 0 } }), 'listen.port')
 })
 check('validate: 非 http 上游被拒', () => {
-  expectConfigError(() => validateConfig({ ...structuredClone(DEFAULTS), upstream: { baseUrl: 'ftp://x', timeoutMs: 45000 } }), 'upstream.baseUrl')
+  expectConfigError(() => validateConfig({ ...structuredClone(DEFAULTS), upstream: { base: 'ftp://x', timeoutMs: 45000 } }), 'upstream.base')
 })
 check('validate: 未知 effort 被拒', () => {
   expectConfigError(() => validateConfig({ ...structuredClone(DEFAULTS), effort: 'turbo' }), 'effort')
@@ -125,6 +126,50 @@ check('loadConfig: data 解析为绝对路径', () => {
 check('loadConfig: 返回对象被冻结（运行时不可被上层改写）', () => {
   const cfg = loadConfig({ argv: [], env: {} })
   assert.ok(Object.isFrozen(cfg))
+})
+
+// —— §8.1 样张补全键（M2: listen.fallback/key、lan.key、catalog.allow/deny、
+//    probe.timeoutMs、egress.subscription/proxy、log.*）——
+check('DEFAULTS: §8.1 样张缺键补齐', () => {
+  assert.equal(DEFAULTS.listen.fallback, true)
+  assert.equal(DEFAULTS.listen.key, '')
+  assert.equal(DEFAULTS.lan.key, '')
+  assert.deepEqual(DEFAULTS.catalog.allow, [])
+  assert.deepEqual(DEFAULTS.catalog.deny, [])
+  assert.equal(DEFAULTS.probe.timeoutMs, 45000)
+  assert.deepEqual(DEFAULTS.egress.subscription, { url: '', token: '' })
+  assert.deepEqual(DEFAULTS.egress.proxy, { url: '', password: '' })
+  assert.deepEqual(DEFAULTS.log, { level: 'info', timestamps: false, color: true, file: '' })
+})
+check('validate: listen.fallback 非布尔被拒', () => {
+  expectConfigError(() => validateConfig({ ...structuredClone(DEFAULTS), listen: { host: '127.0.0.1', port: 18899, fallback: 'yes' } }), 'listen.fallback')
+})
+check('validate: listen.key 非字符串被拒', () => {
+  expectConfigError(() => validateConfig({ ...structuredClone(DEFAULTS), listen: { host: '127.0.0.1', port: 18899, key: 123 } }), 'listen.key')
+})
+check('validate: lan.key 非字符串被拒', () => {
+  expectConfigError(() => validateConfig({ ...structuredClone(DEFAULTS), lan: { enabled: false, host: '0.0.0.0', port: 18899, key: true } }), 'lan.key')
+})
+check('validate: 未知 log.level 被拒', () => {
+  expectConfigError(() => validateConfig({ ...structuredClone(DEFAULTS), log: { level: 'loud' } }), 'log.level')
+})
+check('validate: catalog.allow 非数组被拒', () => {
+  expectConfigError(() => validateConfig({ ...structuredClone(DEFAULTS), catalog: { refreshMinutes: 30, allow: 'x' } }), 'catalog.allow')
+})
+check('validate: probe.timeoutMs 越界被拒', () => {
+  expectConfigError(() => validateConfig({ ...structuredClone(DEFAULTS), probe: { enabled: true, intervalMinutes: 60, concurrency: 2, timeoutMs: 500 } }), 'probe.timeoutMs')
+})
+check('validate: 未知段内键被拒（upstream.baseUrl 打字残留报错）', () => {
+  expectConfigError(() => validateConfig({ ...structuredClone(DEFAULTS), upstream: { baseUrl: 'https://x' } }), 'upstream.baseUrl')
+})
+check('loadConfig: OFM_UPSTREAM 落到 base', () => {
+  const cfg = loadConfig({ argv: [], env: { OFM_UPSTREAM: 'https://env.example' } })
+  assert.equal(cfg.upstream.base, 'https://env.example')
+})
+check('loadConfig: --port 与 --verbose 落位', () => {
+  const cfg = loadConfig({ argv: ['--port', '19007', '--verbose'], env: {} })
+  assert.equal(cfg.listen.port, 19007)
+  assert.equal(cfg.log.level, 'debug')
 })
 
 console.log(`config.test: ${passed} passed${process.exitCode ? '（有失败）' : ''}`)

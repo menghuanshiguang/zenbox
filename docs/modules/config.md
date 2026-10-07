@@ -40,7 +40,7 @@
 | `data` | `./data` | `loadConfig` 归一绝对化 | 运行数据目录 |
 
 环境变量映射（env 层）：`OFM_LISTEN`、`OFM_LAN`（`off/0/false` 关闭）、`OFM_UPSTREAM`、`OFM_TIMEOUT`、`OFM_CATALOG_REFRESH`、`OFM_PROBE`、`OFM_PROBE_INTERVAL`、`OFM_PROBE_CONCURRENCY`、`OFM_EFFORT`、`OFM_EGRESS`、`OFM_IP_REFRESH`、`OFM_IP_PROVIDERS`（逗号分隔）、`OFM_DATA`、`OFM_CONFIG`。
-flag 层：`--listen --lan --no-lan --upstream --timeout --data --effort --egress --probe --no-probe --probe-interval --probe-concurrency --ip-refresh --config`；未识别 flag 留给 CLI 层（start.js）。
+flag 层：`--listen --lan --no-lan --upstream --timeout --data --effort --egress --probe --no-probe --probe-interval --probe-concurrency --ip-refresh --config --port --verbose`（`--port N`→`listen.port`、`--verbose`→`log.level=debug`）；未识别 flag 留给 CLI 层（start.js）。
 
 ## 日志错误
 
@@ -63,7 +63,7 @@ flag 层：`--listen --lan --no-lan --upstream --timeout --data --effort --egres
 
 | 测试 | 覆盖点 |
 | --- | --- |
-| `test/unit/config.test.js`（coverage id: `config-unit`） | stripComments 字符串保真、parseConfigFile 注释解析、DEFAULTS §8 逐字、六类 ConfigError、flag>env>file>默认 四层优先级、文件缺失回落默认、`--lan/--no-lan`、data 绝对化、深冻结 |
+| `test/unit/config.test.js`（coverage id: `config-unit`） | stripComments 字符串保真、parseConfigFile 注释解析、DEFAULTS §8 逐字、六类 ConfigError、flag>env>file>默认 四层优先级、文件缺失回落默认、`--lan/--no-lan`、data 绝对化、深冻结、§8.1 样张缺键补齐（9 项）、逐字段/段内未知键校验红（`listen.fallback` 非布尔、`log.level`、`catalog.allow`、`probe.timeoutMs≥1000` 等 8 项）、`OFM_UPSTREAM` env、`--port`/`--verbose` flag |
 | `test/meta/gates.test.js`（coverage id: `doc-sync`） | 本文档与 src/config.js 双向齐备、十节结构 |
 
 ## 已知边界
@@ -76,3 +76,4 @@ flag 层：`--listen --lan --no-lan --upstream --timeout --data --effort --egres
 ## 变更记录
 
 - 2026-10-07 建档并落地（M0，红线④：`test/unit/config.test.js` 先红后绿，18 项断言）。
+- 2026-10-07 M2：config.json 重写为 §8.1 全键样张（`listen.fallback`/`listen.key`/`lan.key` 替代 `separateKey`，新增 `ip`/`log` 段）；env 层加 `OFM_UPSTREAM`、flag 层加 `--port`/`--verbose`；逐字段校验补 `listen.fallback`/`log.level`/`catalog.allow`/`probe.timeoutMs` 等 8 红后转绿（28 断言）。

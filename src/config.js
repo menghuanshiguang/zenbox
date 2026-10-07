@@ -24,32 +24,46 @@ export class ConfigError extends Error {
 /**
  * 规范化后的配置对象（loadConfig 返回；configPath 仅由 loadConfig 附加）。
  * @typedef {object} ZenConfig
- * @property {{host: string, port: number}} listen
- * @property {{enabled: boolean, host: string, port: number, separateKey: boolean}} lan
- * @property {{baseUrl: string, timeoutMs: number}} upstream
- * @property {{refreshMinutes: number}} catalog
- * @property {{enabled: boolean, intervalMinutes: number, concurrency: number}} probe
+ * @property {{host: string, port: number, fallback: boolean, key: string}} listen
+ * @property {{enabled: boolean, host: string, port: number, key: string}} lan
+ * @property {{base: string, timeoutMs: number}} upstream
+ * @property {{refreshMinutes: number, allow: string[], deny: string[]}} catalog
+ * @property {{enabled: boolean, intervalMinutes: number, concurrency: number, timeoutMs: number}} probe
  * @property {string} effort
- * @property {{mode: string}} egress
+ * @property {{mode: string, subscription: {url: string, token: string}, proxy: {url: string, password: string}}} egress
  * @property {{refreshMinutes: number, providers: string[]}} ip
+ * @property {{level: string, timestamps: boolean, color: boolean, file: string}} log
  * @property {string} data
  * @property {string|null} [configPath]
  */
 
 /** §8 的规格默认值；任何一层缺键都回落到这里。 */
 export const DEFAULTS = Object.freeze({
-  listen: { host: '127.0.0.1', port: 18899 },
-  lan: { enabled: false, host: '0.0.0.0', port: 18899, separateKey: false },
-  upstream: { baseUrl: 'https://opencode.ai', timeoutMs: 45000 },
-  catalog: { refreshMinutes: 30 },
-  probe: { enabled: true, intervalMinutes: 60, concurrency: 2 },
+  listen: { host: '127.0.0.1', port: 18899, fallback: true, key: '' },
+  lan: { enabled: false, host: '0.0.0.0', port: 18899, key: '' },
+  upstream: { base: 'https://opencode.ai', timeoutMs: 45000 },
+  catalog: { refreshMinutes: 30, allow: [], deny: [] },
+  probe: { enabled: true, intervalMinutes: 60, concurrency: 2, timeoutMs: 45000 },
   effort: DEFAULT_LEVEL,
-  egress: { mode: 'direct' },
+  egress: { mode: 'direct', subscription: { url: '', token: '' }, proxy: { url: '', password: '' } },
   ip: { refreshMinutes: 30, providers: ['ipify', 'ipinfo', 'ipapi'] },
+  log: { level: 'info', timestamps: false, color: true, file: '' },
   data: './data',
 })
 
-const KNOWN_KEYS = new Set(['listen', 'lan', 'upstream', 'catalog', 'probe', 'effort', 'egress', 'ip', 'data'])
+const KNOWN_KEYS = new Set(['listen', 'lan', 'upstream', 'catalog', 'probe', 'effort', 'egress', 'ip', 'log', 'data'])
+/** 对象段的段内已知键；段内未知键同样拒绝——打字残留（如旧名 baseUrl）必须响。 */
+const SECTION_KEYS = {
+  listen: new Set(['host', 'port', 'fallback', 'key']),
+  lan: new Set(['enabled', 'host', 'port', 'key']),
+  upstream: new Set(['base', 'timeoutMs']),
+  catalog: new Set(['refreshMinutes', 'allow', 'deny']),
+  probe: new Set(['enabled', 'intervalMinutes', 'concurrency', 'timeoutMs']),
+  egress: new Set(['mode', 'subscription', 'proxy']),
+  ip: new Set(['refreshMinutes', 'providers']),
+  log: new Set(['level', 'timestamps', 'color', 'file']),
+}
+const LOG_LEVELS = new Set(['debug', 'info', 'warn', 'error'])
 const EFFORT_IDS = new Set(LEVELS.map(level => level.id))
 const EGRESS_MODES = new Set(['direct', 'proxy'])
 const IP_PROVIDERS = new Set(['ipify', 'ipinfo', 'ipapi'])
@@ -176,28 +190,49 @@ export function validateConfig(raw) {
   for (const key of Object.keys(raw)) {
     if (!KNOWN_KEYS.has(key)) throw new ConfigError(`未知配置键: ${key}`, key)
   }
+  for (const [section, known] of Object.entries(SECTION_KEYS)) {
+    const value = raw[section]
+    if (value !== undefined && value !== null && typeof value === 'object' && !Array.isArray(value)) {
+      for (const key of Object.keys(value)) {
+        if (!known.has(key)) throw new ConfigError(`未知配置键: ${section}.${key}`, `${section}.${key}`)
+      }
+    }
+  }
   const cfg = deepMerge(structuredClone(DEFAULTS), raw)
 
   expectString(cfg.listen.host, 'listen.host')
   expectInt(cfg.listen.port, 'listen.port', 1, 65535)
+  expectBool(cfg.listen.fallback, 'listen.fallback')
+  expectString(cfg.listen.key, 'listen.key', { nonEmpty: false })
   expectBool(cfg.lan.enabled, 'lan.enabled')
   expectString(cfg.lan.host, 'lan.host')
   expectInt(cfg.lan.port, 'lan.port', 1, 65535)
-  expectBool(cfg.lan.separateKey, 'lan.separateKey')
-  expectString(cfg.upstream.baseUrl, 'upstream.baseUrl')
+  expectString(cfg.lan.key, 'lan.key', { nonEmpty: false })
+  expectString(cfg.upstream.base, 'upstream.base')
   /** @type {URL|null} */
   let url = null
-  try { url = new URL(cfg.upstream.baseUrl) } catch { url = null }
+  try { url = new URL(cfg.upstream.base) } catch { url = null }
   if (url === null || (url.protocol !== 'http:' && url.protocol !== 'https:')) {
-    throw new ConfigError(`upstream.baseUrl 必须是 http(s) URL，实为 ${cfg.upstream.baseUrl}`, 'upstream.baseUrl')
+    throw new ConfigError(`upstream.base 必须是 http(s) URL，实为 ${cfg.upstream.base}`, 'upstream.base')
   }
   expectInt(cfg.upstream.timeoutMs, 'upstream.timeoutMs', 1000, 600000)
   expectInt(cfg.catalog.refreshMinutes, 'catalog.refreshMinutes', 1, 1440)
+  for (const list of ['allow', 'deny']) {
+    const value = cfg.catalog[list]
+    if (!Array.isArray(value) || value.some(item => typeof item !== 'string')) {
+      throw new ConfigError(`catalog.${list} 必须是字符串数组，实为 ${JSON.stringify(value)}`, `catalog.${list}`)
+    }
+  }
   expectBool(cfg.probe.enabled, 'probe.enabled')
   expectInt(cfg.probe.intervalMinutes, 'probe.intervalMinutes', 5, 1440)
   expectInt(cfg.probe.concurrency, 'probe.concurrency', 1, 8)
+  expectInt(cfg.probe.timeoutMs, 'probe.timeoutMs', 1000, 600000)
   if (!EFFORT_IDS.has(cfg.effort)) throw new ConfigError(`effort 必须是 ${[...EFFORT_IDS].join('|')}，实为 ${cfg.effort}`, 'effort')
   if (!EGRESS_MODES.has(cfg.egress.mode)) throw new ConfigError(`egress.mode 必须是 ${[...EGRESS_MODES].join('|')}，实为 ${cfg.egress.mode}`, 'egress.mode')
+  expectString(cfg.egress.subscription.url, 'egress.subscription.url', { nonEmpty: false })
+  expectString(cfg.egress.subscription.token, 'egress.subscription.token', { nonEmpty: false })
+  expectString(cfg.egress.proxy.url, 'egress.proxy.url', { nonEmpty: false })
+  expectString(cfg.egress.proxy.password, 'egress.proxy.password', { nonEmpty: false })
   expectInt(cfg.ip.refreshMinutes, 'ip.refreshMinutes', 1, 1440)
   if (!Array.isArray(cfg.ip.providers) || cfg.ip.providers.length === 0) {
     throw new ConfigError(`ip.providers 必须是非空数组，实为 ${JSON.stringify(cfg.ip.providers)}`, 'ip.providers')
@@ -205,6 +240,10 @@ export function validateConfig(raw) {
   for (const provider of cfg.ip.providers) {
     if (!IP_PROVIDERS.has(provider)) throw new ConfigError(`ip.providers 仅允许 ipify|ipinfo|ipapi，实为 ${provider}`, 'ip.providers')
   }
+  if (!LOG_LEVELS.has(cfg.log.level)) throw new ConfigError(`log.level 必须是 ${[...LOG_LEVELS].join('|')}，实为 ${cfg.log.level}`, 'log.level')
+  expectBool(cfg.log.timestamps, 'log.timestamps')
+  expectBool(cfg.log.color, 'log.color')
+  expectString(cfg.log.file, 'log.file', { nonEmpty: false })
   expectString(cfg.data, 'data')
   return deepFreeze(cfg)
 }
@@ -239,7 +278,7 @@ function envLayerOf(env) {
       ? { enabled: false }
       : { enabled: true, ...parseHostPort(value, 'OFM_LAN') }
   }
-  if (env.OFM_UPSTREAM) layer.upstream = { baseUrl: env.OFM_UPSTREAM }
+  if (env.OFM_UPSTREAM) layer.upstream = { base: env.OFM_UPSTREAM }
   if (env.OFM_TIMEOUT !== undefined) layer.upstream = { ...layer.upstream, timeoutMs: int('OFM_TIMEOUT') }
   if (env.OFM_CATALOG_REFRESH !== undefined) layer.catalog = { refreshMinutes: int('OFM_CATALOG_REFRESH') }
   if (env.OFM_PROBE !== undefined) layer.probe = { enabled: !(value => value === '0' || value === 'off' || value === 'false')(env.OFM_PROBE) }
@@ -269,13 +308,15 @@ function flagLayerOf(argv) {
     }
     switch (flag) {
       case '--listen': layer.listen = parseHostPort(take(), '--listen'); break
+      case '--port': layer.listen = { ...layer.listen, port: Number(take()) }; break
       case '--lan': layer.lan = { enabled: true, ...parseHostPort(take(), '--lan') }; break
       case '--no-lan': layer.lan = { enabled: false }; break
-      case '--upstream': layer.upstream = { ...layer.upstream, baseUrl: take() }; break
+      case '--upstream': layer.upstream = { ...layer.upstream, base: take() }; break
       case '--timeout': layer.upstream = { ...layer.upstream, timeoutMs: Number(take()) }; break
       case '--data': layer.data = take(); break
       case '--effort': layer.effort = take(); break
       case '--egress': layer.egress = { mode: take() }; break
+      case '--verbose': layer.log = { ...layer.log, level: 'debug' }; break
       case '--probe': layer.probe = { ...layer.probe, enabled: true }; break
       case '--no-probe': layer.probe = { ...layer.probe, enabled: false }; break
       case '--probe-interval': layer.probe = { ...layer.probe, intervalMinutes: Number(take()) }; break

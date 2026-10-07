@@ -9,6 +9,9 @@
 | 符号 | 类型 | 签名/形态 | 一句话语义 |
 | --- | --- | --- | --- |
 | `resolveDshHome` | function | `resolveDshHome() → string` | 非空 `process.env.DSH_HOME` 优先，否则 `path.join(os.homedir(), '.dsh')`——文件头点名这是唯一决定数据归属的开关 |
+| `ensureKey` | function | `ensureKey(dir, name, explicit='') → {key, path, source}` | §8.1 key 空=首启生成：`explicit` 非空直接返回（`source:'config'`、`path:null`，不落盘）；文件已有则复读（`source:'file'`）；否则 `generateKey()` 写 `<dir>/<name>`（0600，`writeSecret`）返回 `source:'generated'` |
+| `rotateKey` | function | `rotateKey(dir, name) → {key, path}` | 无条件生成新 Key 覆盖文件（0600）——旧 Key 因 forward 每请求重读而立即 401 |
+| `readKey` | function | `readKey(dir, name, explicit='') → {key, source}` | 显式优先（`source:'config'`）→ 读文件 trim 非空（`'file'`）→ 都无（`'missing'`、`key:''`）；start.js 的 `config()` 每请求调它 |
 | `DATA_DIR_NAME` | const | `'our-free-model'` | `<dshHome>/<此名>` 构成 dataDir |
 | `STATS_VERSION` | const | `3` | 统计结构版本号，`migrateStats` 的升级标尺 |
 | `JsonStore` | class | `new JsonStore(file, initial, {log})`；方法 `load()/get()/update(patch)/edit(fn)/schedule()/flush()/dispose()` | 解析失败保留 `<file>.corrupt-<时间戳>` 副本后退回 `initial`；`update` 浅合入并 `schedule()`；`schedule` 800ms 去抖 + `unref()`；`flush` 写 `<file>.tmp` 后 rename（目标 mode `0600`），失败置回 dirty 且仅首次调 `log(our-free-model: could not persist …)`；`dispose()` 先 flush 再封 `disposed` |
@@ -25,8 +28,8 @@
 
 ## 依赖关系
 
-- **import 进来**: `node:fs`（`readFileSync`/`writeFileSync`/`renameSync`/`mkdirSync`/`chmodSync`/`existsSync`）、`node:path`、`node:os`（`homedir`）。零业务模块依赖。
-- **被谁依赖**: `index.js`（`DATA_DIR_NAME, JsonStore, SETTINGS_INITIAL, dayKey, pruneDays, recordTurn, recordUsage, resolveDshHome, STATS_INITIAL`——四个 store 实例与统计路由）；`scripts/speed-stat-test.mjs`（全部七个导出 + 以 index.js 的 `buildStats` 为夹具）；`scripts/offline-test.mjs`（经 index.js 的 `SETTINGS_INITIAL` 冷启动断言）。
+- **import 进来**: `node:fs`（`readFileSync`/`writeFileSync`/`renameSync`/`mkdirSync`/`chmodSync`/`existsSync`）、`node:path`、`node:os`（`homedir`）；`./forward.js` 仅取 `generateKey`（Key 铸造的唯一实现，forward 自身不反向依赖 store）。
+- **被谁依赖**: `start.js`（`JsonStore, STATS_INITIAL, recordUsage, recordTurn, ensureKey, rotateKey, readKey`——stats 实例与 Key 生命周期）；`index.js`（`DATA_DIR_NAME, JsonStore, SETTINGS_INITIAL, dayKey, pruneDays, recordTurn, recordUsage, resolveDshHome, STATS_INITIAL`——四个 store 实例与统计路由）；`scripts/speed-stat-test.mjs`（全部七个导出 + 以 index.js 的 `buildStats` 为夹具）；`scripts/offline-test.mjs`（经 index.js 的 `SETTINGS_INITIAL` 冷启动断言）。
 
 ## 配置键
 
@@ -42,7 +45,7 @@
 | `defaultMaxTokens` | `32768` | 同上 | 插件默认输出上限（effort 梯子的 fallback） |
 | `streamRecovery` | `true` | 同上 | 流恢复开关（recovery 策略输入） |
 | `announcementAck` / `announcementsAcked` / `feedUrl` / `feedPollMinutes:30` / `notifyOs` / `catalogSyncedAt:0` / `updateCheckHours:6` / `updateNotifiedFor` / `autoReloadWatch` / `distribution:'self'` / `reloadedAt` / `reloadCount` / `installedVersion` | 见左 | 同上 | 公告/订阅源/更新/自重载/分发账 |
-| `data` | `'./data'` | src/config.js `DEFAULTS.data`（env `OFM_DATA`） | 新配置层的数据目录；**当前代码未接** `JsonStore`（仍走 `resolveDshHome()`），config.json 尚在建设（M0 补） |
+| `data` | `'./data'` | src/config.js `DEFAULTS.data`（env `OFM_DATA`） | 新配置层数据目录：start.js 已接线——`ensureKey` 落 `<data>/forward-key|lan-key`、`JsonStore(<data>/stats.json)`；settings/availability 等旧账本仍走 `resolveDshHome()` |
 
 文件落点：`<dataDir>/settings.json`、`stats.json`、`availability.json`、`catalog.json`（`<file>.tmp` 中转、损坏副本 `<file>.corrupt-<ts>`）。
 
@@ -69,6 +72,8 @@
 | --- | --- |
 | `scripts/speed-stat-test.mjs` | 覆盖 `decodeWindow`（`MIN_DECODE_MS`/`MAX_CREDIBLE_TPS` 双界）、`recordUsage`/`recordTurn` 桶累计与条件字段、`migrateStats`（v1/v2→v3 迁移幂等）、`pruneDays` 截断、`JsonStore`（损坏副本/去抖写回/flush 失败只告警一次）、`STATS_INITIAL` 形状、index.js `buildStats`；**当前跑不通**：入口 import `../index.js` 即 `Cannot find module 'src/chan-relay.js'`（见已知边界） |
 | `scripts/offline-test.mjs` | 覆盖 `SETTINGS_INITIAL` 驱动的无 key 冷启动与 managed 门、订阅链接保密（设置页不回显 `egress.url`） |
+| `test/unit/cli.test.js`（coverage id: `cli-unit`） | `ensureKey` 生成/复读/显式不落盘、`rotateKey` 换新、`readKey` 三态（file/config/missing） |
+| `test/integration/key-rotate.test.js`（coverage id: `key-rotate`） | rotate 后旧 Key 立即 401、新 Key 200（每请求重读 key 文件的接线） |
 
 ## 已知边界
 
@@ -83,3 +88,4 @@
 
 - 2026-10-07 建档（M0，依据上游 fbc3b9b + AGENT-BRIEF）。
 - 本仓库无改动（cut 未触及 store.js）；`STATS_VERSION=3` 与 `migrateStats` 的 v1/v2 清理是上游既有语义。
+- 2026-10-07 M2：落 §8.1 Key 三助手 `ensureKey`/`rotateKey`/`readKey`（`writeSecret` 私有，0600 + 尽力 chmod），import `generateKey` from `./forward.js`；start.js 接线 `data/forward-key|lan-key` 与 `stats.json`（cli-unit / key-rotate 两测试）。

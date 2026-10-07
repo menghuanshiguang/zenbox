@@ -387,6 +387,8 @@ const BIND_SCAN = 10
  * port, so nothing is silent about it.
  *
  * @returns {Promise<{port: number, requested: number, fellBack: boolean, bindError: object|null}>}
+ * @param {object} [server] - 被绑定的 net/http 服务器（front 门）
+ * @param {{address?: string, port?: number, attempts?: number, backoffMs?: number, scan?: number, log?: (message: string) => void}} [options]
  */
 export async function bindForwardPort(server, { address, port, attempts = BIND_ATTEMPTS, backoffMs = BIND_BACKOFF_MS, scan = BIND_SCAN, log = () => {} } = {}) {
   const requested = Number.isFinite(Number(port)) && Number(port) > 0 ? Math.trunc(Number(port)) : 0
@@ -422,13 +424,14 @@ export async function bindForwardPort(server, { address, port, attempts = BIND_A
  * Start the listener.
  *
  * @param {object} options
- * @param {() => {host: string, port: number, enabled: boolean, key: string}} options.config
+ * @param {() => {host: string, port: number, enabled: boolean, key: string, fallback?: boolean}} options.config
  * @param {(request: object, onChunk: (chunk: object) => void) => Promise<object>} options.complete -
  *   runs one completion through the adapter and reports chunks as they arrive
  * @param {() => Array<{id: string, created: number, owned_by: string}>} options.modelRows
  * @param {(message: string) => void} [options.log]
  * @param {(event: object) => void} [options.onTrace] - bounded request diagnostics, separate from warnings
- * @returns {Promise<{server: http.Server, port: number, close: () => Promise<void>}>}
+ * @param {number} [options.heartbeatMs] - SSE 心跳间隔（默认 SSE_HEARTBEAT_MS）
+ * @returns {Promise<{server: object, port: number, requestedPort: number, fellBack: boolean, bindError: object|null, host: string, close: () => Promise<void>}>}
  */
 export async function startForwardServer({ config, complete, modelRows, log = () => {}, onTrace = () => {}, heartbeatMs = SSE_HEARTBEAT_MS }) {
   const httpServer = http.createServer((req, res) => {
@@ -510,7 +513,13 @@ export async function startForwardServer({ config, complete, modelRows, log = ()
   // spelling: the settings reconciliation compares it, not the resolved IP.
   const bindAddress = await resolveLoopbackBind(config().host)
   const requestedPort = Number.isFinite(Number(config().port)) ? Math.trunc(Number(config().port)) : 0
-  const bound = await bindForwardPort(front, { address: bindAddress, port: requestedPort, log: message => log(`bind: ${message}`) })
+  const bound = await bindForwardPort(front, {
+    address: bindAddress,
+    port: requestedPort,
+    // §8.1 listen.fallback=false：占用即失败（bind 1 次不顺延）；缺省 true 走 #23 顺延。
+    attempts: config().fallback === false ? 1 : undefined,
+    log: message => log(`bind: ${message}`),
+  })
   front.on('error', error => log(`listener error: ${error?.message ?? error}`))
   if (bound.fellBack) {
     const verdict = classifyBindError(bound.bindError)

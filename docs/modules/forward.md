@@ -38,6 +38,7 @@
 | `forward.enabled` | `false` | `startForwardServer` 的 `config().enabled` | 关闭时 `/`、`/health` 也回 503 `the forward listener is switched off in Our Free Model settings` |
 | `forward.host` | `'127.0.0.1'` | `resolveLoopbackBind(config().host)` | 监听主机；只接受解析后全回环的地址 |
 | `forward.port` | `18899`（`config()` 缺省 `?? 0` 即临时端口） | `bindForwardPort` | 请求端口，被占则顺延；实际绑定值回写 settings |
+| `listen.fallback`（`config().fallback`） | `true` | `bindForwardPort` 的 `attempts` 注入 | `false`→`attempts:1`（占用即失败不顺延）；缺省走 #23 顺延并打 `bind: port … is not available yet` / `port … is taken … listening on … instead` 日志 |
 | `forwardKey` | 首次使用时 `generateKey()` 铸造并持久化 | `forwardKey()` → `config().key` | 本地鉴权键（`Bearer`/`x-api-key` 双拼写） |
 | `forward.lan.enabled` | `false` | `startLanRelay` 的 `config().enabled` | 中继开关；关闭回 503 `the LAN relay is switched off in Our Free Model settings` |
 | `forward.lan.host` | 缺省回落 `'0.0.0.0'`（`SETTINGS_INITIAL.lan` 无 `host` 字段） | `startLanRelay` 绑定 | 中继绑定地址（对外监听） |
@@ -46,7 +47,7 @@
 | `targetPort`（派生） | `forward?.port ?? 0` | 中继出站 `http.request` | 本机转发实际端口；`≤0` 时 503 `the local forward listener is not running` |
 | `localKey`（派生） | `forwardKey()` | 中继改写请求头 | 出站给回环监听器的键 |
 
-（`src/config.js` 的 `DEFAULTS`——`listen: {host:'127.0.0.1', port:18899}`、`lan: {enabled:false, host:'0.0.0.0', port:18899, separateKey:false}`，`KNOWN_KEYS` = listen/lan/upstream/catalog/probe/effort/egress/ip/data——是 `config.json` 规格，尚未被本模块消费；键名以上表注入键为准，config.json 层默认值待接入后补。）
+（`src/config.js` 的 `DEFAULTS`——`listen: {host:'127.0.0.1', port:18899, fallback:true, key:''}`、`lan: {enabled:false, host:'0.0.0.0', port:18899, key:''}`，`KNOWN_KEYS` = listen/lan/upstream/catalog/probe/effort/egress/ip/data——是 `config.json` 规格；start.js 起服务时把 `listen.*`/`lan.*`/`fallback`/`key` 包成本模块消费的 `config()` 回调，`separateKey` 已随 §8.1 废除改 `lan.key`。）
 
 ## 日志错误
 
@@ -100,7 +101,7 @@
 - 请求体上限 8MB（`MAX_BODY_BYTES`）；`OPTIONS` 免鉴权（CORS 预检），`/`、`/health` 免本地键但中继侧 `/health` 仍要 `lanKey`。
 - 本地键与中继键恒分离铸造（`forwardKey`/`forwardLanKey`）；`keyMatches` 恒时比较，但授权函数只接受精确单键，无作用域分级。
 - 非流式完成走 `complete` 单次返回，流式失败在 200 已发出后只能以 SSE `error` 帧 + `data: [DONE]`（responses 为 `response.failed`）表达，无法改状态码。
-- `config.json`（`src/config.js` `DEFAULTS`）尚未接入本模块，键名以注入的 `settings.get().forward` 为准，层间默认值待 M0 后续统一。
+- `config.json`（`src/config.js` `DEFAULTS`）经 start.js 包装后接入本模块（`config()` 回调）；直接调用方（测试）可注入任意同形对象，两者键名一致。
 
 ## 变更记录
 
@@ -108,3 +109,4 @@
 - 2026-10-07 M2：port-of #76 `rankLanAddresses`/`VIRTUAL_IFACE` 落地（`scripts/forward-test.mjs` 四断言红→绿，61 项全绿）。
 - 2026-10-07 M2：port-of #40 PROXY v1 设备地址落地——`sniffProxyHeader` 前门嗅探 + 双监听改造 + 中继非池化 agent 逐请求 PROXY 行（六断言红→绿，67 项全绿）。
 - 2026-10-07 M2：port-of #41 设备 IP 贯穿——`serveCompletion` 传 `deviceIp`、`proxyHeaderV1` 认领级联源、网关 `x-forwarded-for`（四断言红→绿，71 项全绿）。
+- 2026-10-07 M2：接 §8.1 `listen.fallback`——`config().fallback===false` 时 `attempts:1`（占用即失败），缺省顺延；`bindForwardPort`/`startForwardServer` 补全 JSDoc 形状（options.address/port、config.fallback、heartbeatMs、返回型 requestedPort/fellBack/bindError/host）。

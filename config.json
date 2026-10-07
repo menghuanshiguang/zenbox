@@ -1,31 +1,38 @@
-// zenbox 运行配置（AGENT-BRIEF §8）。允许 // 行注释。
+// zenbox 运行配置（AGENT-BRIEF §8.1）。允许 // 行注释。
 // 优先级: CLI flag > OFM_* 环境变量 > 本文件 > 默认值。
-// 校验失败会拒绝启动；未知键视为打字错误直接报错。
+// 校验失败拒绝启动；段内未知键视为打字错误直接报错。
 {
-  // 本机转发监听（OpenAI 兼容入口）
-  "listen": { "host": "127.0.0.1", "port": 18899 },
+  // 本机转发监听（OpenAI 兼容入口）；key 空 = 首次启动生成 ofm- 前缀 Key 写 data/（0600）
+  // fallback = 端口被占时顺延探测（#23）；false 则占用即失败
+  "listen": { "host": "127.0.0.1", "port": 18899, "fallback": true, "key": "" },
 
-  // 局域网入口（M2 起可 bind；关闭时只有 loopback 可达）
-  // separateKey 恒为 false：LAN 复用本机转发 Key（§8 不设独立 Key）
-  "lan": { "enabled": false, "host": "0.0.0.0", "port": 18899, "separateKey": false },
+  // 局域网入口：独立 Key，与本机不通用；enabled=false 默认关闭（多设备门常关）
+  "lan": { "enabled": false, "host": "0.0.0.0", "port": 18899, "key": "" },
 
-  // 上游 opencode 网关
-  "upstream": { "baseUrl": "https://opencode.ai", "timeoutMs": 45000 },
+  // 上游 opencode 网关与超时
+  "upstream": { "base": "https://opencode.ai", "timeoutMs": 45000 },
 
-  // 模型清单后台刷新周期（分钟）
-  "catalog": { "refreshMinutes": 30 },
+  // 模型清单后台刷新周期（分钟）；allow/deny 留空 = 全量（过滤接入后续里程碑）
+  "catalog": { "refreshMinutes": 30, "allow": [], "deny": [] },
 
-  // 可用性探测（探针默认档禁真实出网，live 档 --allow-live 才放行）
-  "probe": { "enabled": true, "intervalMinutes": 60, "concurrency": 2 },
+  // 可用性探测节奏；timeoutMs 单次探测超时（探针默认档禁真实出网，live 档 --allow-live 才放行）
+  "probe": { "enabled": true, "intervalMinutes": 60, "concurrency": 2, "timeoutMs": 45000 },
 
   // 默认思考档位: light | balanced | deep
   "effort": "balanced",
 
-  // 出口: direct 直连 | proxy 走本地代理中继（M3）
-  "egress": { "mode": "direct" },
+  // 出口: direct 直连 | proxy 走代理中继；subscription/proxy 凭据字段为 M3 egress 预留
+  "egress": {
+    "mode": "direct",
+    "subscription": { "url": "", "token": "" },
+    "proxy": { "url": "", "password": "" }
+  },
 
   // 公网出口 IP：仅 banner/status 展示，后台按期刷新（§13）
   "ip": { "refreshMinutes": 30, "providers": ["ipify", "ipinfo", "ipapi"] },
+
+  // 日志: level debug|info|warn|error；timestamps/color 展示；file 空=只上 stdout
+  "log": { "level": "info", "timestamps": false, "color": true, "file": "" },
 
   // 运行数据目录（Key 0600、清单缓存、统计）
   "data": "./data"

@@ -9,10 +9,11 @@
     "messages-projection": "test/unit/messages-projection.test.js",
     "effort-unit": "test/unit/effort.test.js",
     "turn-unit": "test/unit/turn.test.js",
+    "cli-unit": "test/unit/cli.test.js",
+    "key-rotate": "test/integration/key-rotate.test.js",
     "upstream-picker": "scripts/picker-test.mjs",
     "upstream-recovery": "scripts/recovery-test.mjs",
     "upstream-offline": "scripts/offline-test.mjs",
-    "upstream-forward": "scripts/forward-test.mjs",
-    "upstream-recovery": "scripts/recovery-test.mjs"
+    "upstream-forward": "scripts/forward-test.mjs"
   }
 }

@@ -35,12 +35,12 @@
 - messages.js → upstream.js
 - probe.js → egress.js, http.js, upstream.js
 - recovery.js → （无本地依赖）
-- store.js → （无本地依赖）
+- store.js → forward.js
 - stream.js → http.js, upstream.js
 - trust.js → （无本地依赖）
 - turn.js → adapter.js, forward.js, probe.js
 - upstream.js → （无本地依赖）
-- start.js → config.js
+- start.js → adapter.js, catalog.js, config.js, forward.js, store.js, turn.js
 <!-- deps:end -->
 
 ## ③ 阅读路径

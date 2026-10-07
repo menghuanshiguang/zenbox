@@ -18,9 +18,70 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
+import { generateKey } from './forward.js'
 import os from 'node:os'
 
 /** Same resolution the harness home-paths helper uses: `$DSH_HOME` else `~/.dsh`. */
+/** 0600 落盘一个密钥值；Windows 无 POSIX mode 位时尽力而为（chmod 同步尝试）。 */
+function writeSecret(file, value) {
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(file, `${value}\n`, { mode: 0o600 })
+  try { fs.chmodSync(file, 0o600) } catch { /* Windows：mode 位不可用，尽力 */ }
+}
+
+/**
+ * 读取或首次生成 Key（§8.1: config 的 key 空 = 首次生成写 data/ 0600）。
+ * `explicit` 非空时以配置为准，不落盘——用户自己管的密钥不被二次改写。
+ *
+ * @param {string} dir 数据目录（config.data 已绝对化）
+ * @param {string} name 文件名，如 `forward-key` / `lan-key`
+ * @param {string} [explicit]
+ * @returns {{key: string, path: string|null, source: 'config'|'file'|'generated'}}
+ */
+export function ensureKey(dir, name, explicit = '') {
+  if (explicit !== '') return { key: explicit, path: null, source: 'config' }
+  const file = path.join(dir, name)
+  try {
+    const existing = fs.readFileSync(file, 'utf8').trim()
+    if (existing !== '') return { key: existing, path: file, source: 'file' }
+  } catch { /* 首次生成 */ }
+  const key = generateKey()
+  writeSecret(file, key)
+  return { key, path: file, source: 'generated' }
+}
+
+/**
+ * 轮换：无条件生成新 Key 覆盖写盘。运行中的监听器每次请求都经 `readKey`
+ * 重读文件，因此轮换后旧 Key 立即 401（§8.2 `key rotate` 语义）。
+ *
+ * @param {string} dir
+ * @param {string} name
+ * @returns {{key: string, path: string}}
+ */
+export function rotateKey(dir, name) {
+  const key = generateKey()
+  const file = path.join(dir, name)
+  writeSecret(file, key)
+  return { key, path: file }
+}
+
+/**
+ * 当前 Key 快照：config 显式 > 文件；都没有 → 空串。status/key 展示尾4 用。
+ *
+ * @param {string} dir
+ * @param {string} name
+ * @param {string} [explicit]
+ * @returns {{key: string, source: 'config'|'file'|'missing'}}
+ */
+export function readKey(dir, name, explicit = '') {
+  if (explicit !== '') return { key: explicit, source: 'config' }
+  try {
+    const existing = fs.readFileSync(path.join(dir, name), 'utf8').trim()
+    if (existing !== '') return { key: existing, source: 'file' }
+  } catch { /* 未生成 */ }
+  return { key: '', source: 'missing' }
+}
+
 export function resolveDshHome() {
   const fromEnv = process.env.DSH_HOME
   if (typeof fromEnv === 'string' && fromEnv.trim() !== '') return fromEnv.trim()
