@@ -9,7 +9,7 @@ gates.test 校验测试列引用的 id 存在。
 | --- | --- | --- | --- |
 | #27 | 源码已含（上游 main 的 `toToolDefs` 双拼写分支与 5 断言在位）；独立回归用例已建 | 随 c4c7421 导入（上游 fbc3b9b）；回归 test/integration/forward-tools.test.js | forward-tools |
 | #102 | 移植：`systemPromptUpdate:'in-history'`（chat/responses 声明，messages 不声明） | 已移植（M1: `src/adapter.js` systemPromptUpdateFor + `types/dsh-llm.d.ts`；commit `e8f7…` 见 git log `test(adapter): #102`） | adapter-unit |
-| #113 | 部分移植：messages.js 投影次序 | 待移植（M1 messages） | — |
+| #113 | 源码已含（messages.js `followUp` 投影次序 + projection-test 第 8 节在位）；独立回归用例已建 | 随 c4c7421 导入（上游 fbc3b9b）；回归 test/unit/messages-projection.test.js | messages-projection |
 | #105 | 不移植：已被上游实现取代 | — | — |
 | #103 | 不移植：自更新三连修，本仓库无自更新器 | — | — |
 | #68 | 不移植：自更新三连修，本仓库无自更新器 | — | — |

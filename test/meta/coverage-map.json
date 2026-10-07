@@ -5,6 +5,7 @@
     "config-unit": "test/unit/config.test.js",
     "doc-sync": "test/meta/gates.test.js",
     "forward-tools": "test/integration/forward-tools.test.js",
-    "adapter-unit": "test/unit/adapter.test.js"
+    "adapter-unit": "test/unit/adapter.test.js",
+    "messages-projection": "test/unit/messages-projection.test.js"
   }
 }

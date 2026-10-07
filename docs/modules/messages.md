@@ -44,9 +44,9 @@
 
 | PR | 处置 | 落点/理由 |
 | --- | --- | --- |
-| #27 | 待移植（M1） | tools 二次转换回归：断言上游 payload 的 `tools` 非空；当前代码未含该断言（仓内最接近的是 `scripts/forward-test.mjs` 的 #26 区块——`toToolDefs` 二次转换不丢工具、转发路径 `lane.seen` 收到调用方工具，断言未落到 adapter 直连路径的 payload 上）。 |
-| #113 | 部分移植 | 投影次序：当前代码已含 `followUp` 归并（工具结果先于图像/用户内容 flush）、`toClaudeMessages` 同角色合并、混合包裹文本不打断结果序列等次序处理；PR 的完整次序改动/断言未全部落地。 |
-| #102 | 待移植（M1） | `systemPromptUpdate:'in-history'`；当前代码未含（全仓无该字样，system 提示由 `toClaudeMessages` 拼进顶层 `system`、由 `toChatMessages`/`toResponseInput` 内联成 `system` 消息）。 |
+| #27 | 源码已含 + 独立回归 | `toToolDefs` 双拼写分支在位（上游 fbc3b9b）；独立回归 `test/integration/forward-tools.test.js`（forward-tools，M1 建）。本模块为其 `tools` 转换的源头。 |
+| #113 | 源码已含 + 独立回归 | 投影次序：`followUp` 归并（工具结果先于图像/用户内容 flush）、`toClaudeMessages` 同角色合并、混合包裹文本不打断结果序列均在位；`scripts/projection-test.mjs` 第 8 节 39 断言全绿。独立回归 `test/unit/messages-projection.test.js`（messages-projection，M1 建）。 |
+| #102 | 已移植（落点在 adapter） | `systemPromptUpdate:'in-history'` 由 `src/adapter.js` resolveModel 声明（`systemPromptUpdateFor`）；本模块只投影消息序列，不持该字段。测试 `test/unit/adapter.test.js`（adapter-unit）。 |
 
 （处置矩阵见 docs/pr-coverage.md；本表只列直接落进本模块的。）
 
@@ -54,7 +54,8 @@
 
 | 测试 | 覆盖点 |
 | --- | --- |
-| `scripts/projection-test.mjs` | 主覆盖：V3/V4 两代工具结果各恰好上行一次（`repairToolPairing` + 三投影计数）、孤儿调用/无主结果/无 call id 结果丢弃（不再 400 整会话）、无名调用按 issue #92 丢弃（三线一致）、并行调用批、`isError`→`is_error`、图像 offload 与 `image-dropped` 警告、空结果 `'(no output)'`、构造良好的回合 byte-for-byte 不被改写、混合包裹文本次序（`assistant/tool/tool/user`）、Claude 侧同文本不重复附着。 |
+| `scripts/projection-test.mjs` | 主覆盖：V3/V4 两代工具结果各恰好上行一次（`repairToolPairing` + 三投影计数）、孤儿调用/无主结果/无 call id 结果丢弃（不再 400 整会话）、无名调用按 issue #92 丢弃（三线一致）、并行调用批、`isError`→`is_error`、图像 offload 与 `image-dropped` 警告、空结果 `'(no output)'`、构造良好的回合 byte-for-byte 不被改写、混合包裹文本次序（`assistant/tool/tool/user`）、Claude 侧同文本不重复附着、并行图片结果相邻性（第 8 节，#112/#113）。 |
+| `test/unit/messages-projection.test.js` | 独立回归（messages-projection）：#113——chat/responses 两线的并行结果必须背靠背、图片跟随行全部在其后、混合包裹文本保留一次、源历史不被投影改动。 |
 | `scripts/forward-test.mjs` | `toToolDefs`：flat harness def 与 OpenAI `{function:{…}}` 包裹 def 都能读（不丢工具）、二次转换保留全部调用方工具（#26 区块）、与 `applyFingerprint` 联动（非空列表不钉 `tool_choice`）。 |
 
 （`scripts/picker-test.mjs` 未引用本模块：grep 证实 `src/messages.js` 的 import 方仅 `src/adapter.js`、上述两测试。）
@@ -72,3 +73,4 @@
 ## 变更记录
 
 - 2026-10-07 建档（M0，依据上游 fbc3b9b + AGENT-BRIEF）。
+- 2026-10-07 M1：#113 判定为源码已含（followUp 次序 + projection-test 第 8 节全绿），建独立回归 `test/unit/messages-projection.test.js`（4 断言）；#27/#102 关联处置同步。本文件同步。
