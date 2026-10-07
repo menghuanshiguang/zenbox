@@ -7,6 +7,7 @@
     "forward-tools": "test/integration/forward-tools.test.js",
     "adapter-unit": "test/unit/adapter.test.js",
     "messages-projection": "test/unit/messages-projection.test.js",
-    "effort-unit": "test/unit/effort.test.js"
+    "effort-unit": "test/unit/effort.test.js",
+    "turn-unit": "test/unit/turn.test.js"
   }
 }

@@ -16,6 +16,7 @@
 # store.js — 插件自有 JSON 持久化与用量统计累计
 # stream.js — 三种上游 SSE 载荷到 harness StreamChunk 的同步投影与用量核算
 # trust.js — 插件 HTTP 面的请求信任栅栏（Host/Origin/Referer 结构层 + 连接接纳层）
+# turn.js — 转发口一次请求的语义链：OpenAI 拼写→harness 消息→适配器流→outcome 折叠
 # upstream.js — 免密车道的上游线缆契约：标识铸造、端点与线形路由、指纹头与工具指纹门
 
 以上每行与 `docs/modules/<名字>.md` 首行逐字一致（gates.test 校验）。
@@ -37,6 +38,7 @@
 - store.js → （无本地依赖）
 - stream.js → http.js, upstream.js
 - trust.js → （无本地依赖）
+- turn.js → adapter.js, forward.js, probe.js
 - upstream.js → （无本地依赖）
 - start.js → config.js
 <!-- deps:end -->

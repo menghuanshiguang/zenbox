@@ -29,7 +29,7 @@ import { startForwardServer, startLanRelay, resolveLoopbackBind, bindForwardPort
 import { toToolDefs } from '../src/messages.js'
 import { readStream } from '../src/stream.js'
 import { applyFingerprint } from '../src/upstream.js'
-import { fromOpenAiMessages } from '../index.js'
+import { fromOpenAiMessages } from '../src/turn.js'
 import { until } from './lib/fake-kernel.mjs'
 
 let failures = 0
