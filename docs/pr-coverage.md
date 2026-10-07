@@ -15,7 +15,7 @@ gates.test 校验测试列引用的 id 存在。
 | #68 | 不移植：自更新三连修，本仓库无自更新器 | — | — |
 | #84 | 移植：被拒换同区节点重发不重复计费 | 待移植（M3 egress/adapter） | — |
 | #82 | 移植：egress 故障切换 + `x-ofm-egress-fault` 三类分账 | 待移植（M3 egress） | — |
-| #76 | 移植：rankLanAddresses | 待移植（M2 forward） | — |
+| #76 | 已移植（M2，port-of #76） | `src/forward.js` `rankLanAddresses`/`VIRTUAL_IFACE`；面板轮询 API 不适用（无 Web UI），banner/status 现读（M4） | upstream-forward |
 | #75 | 移植：onQuotaHit→refreshOutletExit({avoid}) | 待移植（M3 egress/adapter） | — |
 | #74 | 移植：effort 别名 minimal/low/medium/high/none→light/balanced/deep + /v1/models 暴露档位 | 已移植（M1: `src/effort.js` normalizeLevel/LEVEL_ALIASES + resolveLevel 别名解析，commit 见 git log `feat(effort)`；forward 侧 callerEffort 与 /v1/models `x_ofm_*` 暴露属 M2/M3 落位） | effort-unit |
 | #72 | 移植：监听先行 boot-order（勿误读为不移植） | 待移植（M4 start 时序） | — |

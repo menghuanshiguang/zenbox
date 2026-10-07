@@ -14,12 +14,13 @@
 | `classifyBindError` | function | `classifyBindError(error) → { kind: 'held'\|'in-use'\|'unavailable'\|'unknown', code, retryable, hint }` | `EACCES`/`EPERM`→`held`（hint 指 Windows portproxy/管理员占用）；`EADDRINUSE`→`in-use`；`EADDRNOTAVAIL`→`unavailable` |
 | `bindForwardPort` | async function | `bindForwardPort(server, { address, port, attempts = 4, backoffMs = 150, scan = 10, log }) → { port, requested, fellBack, bindError }` | 同端口重试 4 次（150ms×2^n 退避）→ 顺延至多 10 个端口（≤65535）→ 临时端口兜底；每次失败经 `classifyBindError` 记日志 |
 | `startForwardServer` | async function | `startForwardServer({ config, complete, modelRows, log, onTrace, heartbeatMs }) → { server, port, requestedPort, fellBack, bindError, host, close }` | 回环监听器主入口；`heartbeatMs` 默认 `SSE_HEARTBEAT_MS` |
+| `rankLanAddresses` | function | `rankLanAddresses(interfaces) → string[]` | #76：`os.networkInterfaces()` 形参每次现读不缓存；过滤 IPv4/非回环/非 APIPA（`169.254.`）/去重后，按网卡名 `VIRTUAL_IFACE` 正则（vEthernet/WSL/Hyper-V/Docker/VMware/tailscale/utun/隧道/虚拟…）分物理/虚拟两组，`sort(Number(virtual)差)` 稳定排序——物理网卡领头（banner 复制行），组内保持 OS 原序；无可用地址回 `[]` |
 | `startLanRelay` | async function | `startLanRelay({ config, log, onTrace }) → { server, port, host, close }` | 中继入口；返回实际绑定端口/主机供设置页回写 |
 | `SSE_HEARTBEAT_MS` | const | `SSE_HEARTBEAT_MS = 15000` | SSE 心跳间隔（15s 注释帧，代理不掉线） |
 | `startHeartbeat` | function | `startHeartbeat(res, intervalMs) → stop` | 定时写 `: ping\n\n`，timer `unref()`，`stop()` 幂等清理 |
 | `toOpenAiUsage` | function | `toOpenAiUsage(usage) → { prompt_tokens, completion_tokens, total_tokens, prompt_tokens_details: { cached_tokens }, completion_tokens_details: { reasoning_tokens } }` | 上游 usage → OpenAI 拼写（零值桶省略） |
 
-模块私有：`traceRequest`（`performance.now()` 起止与帧阶段诊断）、`bearerOf`、`httpError`、`readBody`（`MAX_BODY_BYTES = 8 * 1024 * 1024`）、`json`、`openAiError`、`isLoopbackIp`、`bindFailure`、`listenOnce`、`serveCompletion`、`authorized`、`corsHeaders`、`sendSse`、`openStreamHeaders`、`createToolWire`、`chatCompletions`、`executableCalls`、`responsesEndpoint`。常量：`REQUEST_ID_HEADER = 'x-ofm-request-id'`（16 字节 hex 诊断头）、`COMPLETION_PATHS`、`RELAY_PATHS`、`RELAY_HOP_HEADER = 'x-ofm-relay-hop'`。
+模块私有：`traceRequest`（`performance.now()` 起止与帧阶段诊断）、`bearerOf`、`httpError`、`readBody`（`MAX_BODY_BYTES = 8 * 1024 * 1024`）、`json`、`openAiError`、`isLoopbackIp`、`bindFailure`、`listenOnce`、`serveCompletion`、`authorized`、`corsHeaders`、`sendSse`、`openStreamHeaders`、`createToolWire`、`chatCompletions`、`executableCalls`、`responsesEndpoint`、`VIRTUAL_IFACE`（#76 网卡名虚拟正则）。常量：`REQUEST_ID_HEADER = 'x-ofm-request-id'`（16 字节 hex 诊断头）、`COMPLETION_PATHS`、`RELAY_PATHS`、`RELAY_HOP_HEADER = 'x-ofm-relay-hop'`。
 
 路由（本地 handle）：`OPTIONS`→204+CORS；`/`、`/health` 免 key 200 `{ok:true, service:'our-free-model'}`；缺 key/错 key→401 `missing or invalid API key`；`GET /v1/models`、`/models`→`modelRows()`；`POST /v1/chat/completions`、`/chat/completions`→`chatCompletions`；`POST /v1/responses`、`/responses`→`responsesEndpoint`；其余→404 `` no route for ${req.method} ${path} ``。中继：每请求校验 `lanKey`（`/health` 也校验，仅 `OPTIONS` 免）、仅放行 `RELAY_PATHS` 同六条、改写为 `Bearer ${settings.localKey}` 并加 `x-ofm-relay-hop: 1`。
 
@@ -80,22 +81,21 @@
 | #40 | 待移植（M1/M3） | 中继 PROXY v1 设备 IP：当前 `startLanRelay` 出站为裸 `http.request`，无 PROXY v1 stamping（`grep PROXY` 仅命中 `src/egress.js` 的注释与 egress 自身 `agent.createConnection`）；AGENT-BRIEF §6 模块顺序口径 |
 | #41 | 待移植（依赖 #40，M1/M3） | 设备 IP → `x-forwarded-for`：全仓 grep 无命中，当前中继不透传来源 IP；须先落 #40 拿到设备 IP |
 | #74 | 待移植（M1/M3） | effort 档位名映射：当前 `chatCompletions`/`responsesEndpoint` 只解析模型名尾缀 `/\(([^()]+)\)\s*$/` 并在未显式给出时拷入 `reasoning_effort` 原样透传，无 OpenAI 档位名别名映射 |
-| #76 | 待移植（M1/M3） | `rankLanAddresses`：全仓无命中；`index.js` 仅有未排序的 `lanAddresses()` |
+| #76 | 已移植（M2，port-of #76） | `rankLanAddresses` + `VIRTUAL_IFACE` 落 `src/forward.js`（`startForwardServer` 与 `RELAY_PATHS` 之间），4 项断言入 `scripts/forward-test.mjs`；上游 PR 的面板轮询 API（`GET /forward/lan/addresses`）不适用——zenbox 无 Web UI（§13），重读语义由 banner/status（M4）直接每次现调 |
 
 ## 测试对照
 
 | 测试 | 覆盖点 |
 | --- | --- |
-| `scripts/forward-test.mjs`（1052 行，56 项 `checkAsync`/`check`） | 工具线序（`tool_calls[].index` 从 0 重排、指纹 decoy 抑制、截断帧 `finish=length`、非流式 `executableCalls` 过滤）；非 JSON 请求体→400；`/v1/responses` 的 `instructions`/`max_output_tokens`/`stream`/`usage`/`incomplete`/`output_index` 分配；#66 reasoning 别名（`reasoning_content`/`reasoning_text`/`reasoning_details`/Anthropic 拼写归并）；#92 无名工具块降级；SSE 心跳（15s 注释帧、`close()` 停止、正常 finish 不动、默认间隔前静默）；`resolveLoopbackBind` 拒绝可路由解析、`classifyBindError` 各类错误码、`bindForwardPort` 等释放/保端口/顺延、`startForwardServer` 回报实际端口；LAN relay 七项（无 key 含 `/health`、空 key、换本机 key 重发、流式承载、非通用代理、503×2、508 自打转）；请求诊断十项（含 LAN 双跳链接、回调抛错、畸形 URL、健康/名单无诊断）；#62 合成行 `model` 来源；`toOpenAiUsage` 归一 |
+| `scripts/forward-test.mjs`（1089 行，61 项 `checkAsync`/`check`） | 工具线序（`tool_calls[].index` 从 0 重排、指纹 decoy 抑制、截断帧 `finish=length`、非流式 `executableCalls` 过滤）；非 JSON 请求体→400；**#76 四断言**（虚拟网卡不领头、组内 OS 原序+IPv6/回环/APIPA 剔除、同址去重、无可用回 `[]`）；`/v1/responses` 的 `instructions`/`max_output_tokens`/`stream`/`usage`/`incomplete`/`output_index` 分配；#66 reasoning 别名（`reasoning_content`/`reasoning_text`/`reasoning_details`/Anthropic 拼写归并）；#92 无名工具块降级；SSE 心跳（15s 注释帧、`close()` 停止、正常 finish 不动、默认间隔前静默）；`resolveLoopbackBind` 拒绝可路由解析、`classifyBindError` 各类错误码、`bindForwardPort` 等释放/保端口/顺延、`startForwardServer` 回报实际端口；LAN relay 七项（无 key 含 `/health`、空 key、换本机 key 重发、流式承载、非通用代理、503×2、508 自打转）；请求诊断十项（含 LAN 双跳链接、回调抛错、畸形 URL、健康/名单无诊断）；#62 合成行 `model` 来源；`toOpenAiUsage` 归一 |
 | `scripts/test-all.mjs` | 套件表含 `['forward','forward-test.mjs']`，与 effort/truncation/recovery/retry-safety/picker/tui/offline 一键执行 |
 | `test/unit/config.test.js` | `src/config.js` 键校验（`listen`/`lan` 等键名与本模块注入键的对应关系由其把关；转发行为本身不经此文件） |
 
 ## 已知边界
 
 - 本地监听只绑回环（含顺延），对外只通过 LAN 中继的独立门；中继仅放行 `RELAY_PATHS` 三条路径（chat/responses/models 各两种拼写）+ `/`、`/health`，不是通用 HTTP 代理。
-- 中继出站目标写死 `127.0.0.1:targetPort`，不透传设备 IP：#40（PROXY v1）与 #41（`x-forwarded-for`）未移植，诊断里 hop 记为 relay 但来源地址不可得。
-- effort 只认模型名尾缀 `(level)`，不做 OpenAI 档位名别名映射（#74 未移植）；显式 `reasoning_effort` 永远优先于尾缀。
-- `rankLanAddresses`（#76）未移植，中继选址不按可达性排序。
+- 中继出站目标写死 `127.0.0.1:targetPort`：#40（PROXY v1）与 #41（`x-forwarded-for`）未移植，诊断里 hop 记为 relay 但来源地址不可得。
+- effort 只认模型名尾缀 `(level)`，不做 OpenAI 档位名别名映射（#74 的 forward 侧 `callerEffort` 未移植，归 M3）；显式 `reasoning_effort` 永远优先于尾缀。
 - SSE 心跳是写给中间代理的注释帧，不重置 `adapter.js`→`http.js` 侧的上游空闲看门狗；上游超时仍由 `postStreamed` 的 300s 截止管。
 - 请求体上限 8MB（`MAX_BODY_BYTES`）；`OPTIONS` 免鉴权（CORS 预检），`/`、`/health` 免本地键但中继侧 `/health` 仍要 `lanKey`。
 - 本地键与中继键恒分离铸造（`forwardKey`/`forwardLanKey`）；`keyMatches` 恒时比较，但授权函数只接受精确单键，无作用域分级。
@@ -105,3 +105,4 @@
 ## 变更记录
 
 - 2026-10-07 建档（M0，依据上游 fbc3b9b + AGENT-BRIEF）。
+- 2026-10-07 M2：port-of #76 `rankLanAddresses`/`VIRTUAL_IFACE` 落地（`scripts/forward-test.mjs` 四断言红→绿，61 项全绿）。
