@@ -70,4 +70,4 @@
 ## 变更记录
 
 - 2026-10-07 建档（M0，依据上游 fbc3b9b + AGENT-BRIEF）。
-- M0（cut 1c752e5）本仓库改动：`eacDefaultLevel` → `menuDefaultLevel` 改名、`kilos` → `roundK` 改名（EAC 车道痕迹清除，4 处调用点同步）。
+- M0（cut 5b84917）本仓库改动：`eacDefaultLevel` → `menuDefaultLevel` 改名、`kilos` → `roundK` 改名（EAC 车道痕迹清除，4 处调用点同步）。

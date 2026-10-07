@@ -69,4 +69,4 @@
 ## 变更记录
 
 - 2026-10-07 建档（M0，依据上游 fbc3b9b + AGENT-BRIEF）。
-- M0（cut 1c752e5）：仅改文件头注释——删去对 `src/eac.js`/`src/kilo.js`（已随 cut 移除）的引用，逻辑零改动。
+- M0（cut 5b84917）：仅改文件头注释——删去对 `src/eac.js`/`src/kilo.js`（已随 cut 移除）的引用，逻辑零改动。

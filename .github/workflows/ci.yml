@@ -25,6 +25,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Install ripgrep（L0 禁词门禁用；runner 镜像未预装）
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$(uname -s)" in
+            Linux)  sudo apt-get update -q && sudo apt-get install -y ripgrep ;;
+            Darwin) brew install ripgrep ;;
+            *)      choco install ripgrep -y ;;
+          esac
+          rg --version | head -n 1
       - name: Install devDependencies（仅 typescript，红线②）
         run: npm ci
       - name: L0 + L1 + L2 门禁

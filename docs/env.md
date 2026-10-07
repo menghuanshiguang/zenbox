@@ -24,9 +24,17 @@
 2. `rg` 缺失 → `curl -x http://127.0.0.1:7897` 下载 ripgrep-14.1.1-x86_64-pc-windows-msvc.zip → 解压 `rg.exe` 到 `C:\Users\fantasytat\.local\bin\`。
 3. 上游源码: `git archive --format=tar -o ..\upstream.tar HEAD`（在上游 clone 中）→ 本目录 `tar -xf`。
    - 教训: PowerShell 管道传二进制（`git archive | tar -x`）会破坏字节流，tar 报 "Damaged tar archive (bad header checksum)"，必须落文件再解。
-4. 建仓两次提交: `928e283` import upstream（301 files）→ `1c752e5` cut（§2.1 删除清单）。
+4. 建仓两次提交: `c4c7421` import upstream（301 files）→ `5b84917` cut（§2.1 删除清单）→ `1fc1739` M0 脚手架。
+5. 首推被 GitHub Push Protection 拦截: 上游历史里 `vendor/channel-pack` 含 Google OAuth Client ID/Secret（后续提交已删、历史仍在）。处理: 用 `git read-tree + rm --cached vendor + write-tree + commit-tree` 重写三个提交（根提交=上游树减 vendor；cut 的树本就不含 vendor，故重写前后树完全一致），`git push -f` 通过。教训: 导入第三方仓库前先扫其敏感文件，或直接以"最终裁剪树"建根提交。
+6. 重写后旧 hash（928e283/1c752e5/d989cd0）全部失效，docs 内引用已批量替换为 `c4c7421/5b84917/1fc1739`——**引用 hash 前先 `git log` 核实**。
+
+## CI
+
+- `.github/workflows/ci.yml`: matrix ubuntu amd64 + ubuntu arm64 + macos + windows，`npm ci` → `npm test`（L0/L1/L2）→ start 冒烟（`OFM_SMOKE_MS=2000`）。
+- Actions 的 windows runner 自带 Git Bash，`shell: bash` 全平台可用；本机 pwsh 无 shellcheck。
 
 ## 已知平台差异
 
-- Windows 下 bash/shellcheck 类门禁不可用（CI 由 ubuntu/macos 承担 bash -n + shellcheck）。
+- 本机 pwsh 跑 shellcheck/bash -n 不可用，门禁里记 SKIP（CI 的 bash 层覆盖）。
 - 进程被 kill 后 pwsh 报 `[exit code: 1]` 无信号标记，视为中断而非命令失败。
+- PowerShell 写文件易带 BOM/控制台乱码：写 JSON/UTF-8 用 `[IO.File]::WriteAllText($path, $text, (New-Object Text.UTF8Encoding $false))`，验证用 read 工具而非 Get-Content。

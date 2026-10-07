@@ -7,7 +7,7 @@ gates.test 校验测试列引用的 id 存在。
 
 | PR | 处置 | 落点 | 测试 |
 | --- | --- | --- | --- |
-| #27 | 源码已含（上游 main 的 `toToolDefs` 双拼写分支与 5 断言在位）；独立回归用例另立（M1 建 test/integration/forward-tools.test 后登记 id） | 随 928e283 导入（上游 fbc3b9b） | — |
+| #27 | 源码已含（上游 main 的 `toToolDefs` 双拼写分支与 5 断言在位）；独立回归用例另立（M1 建 test/integration/forward-tools.test 后登记 id） | 随 c4c7421 导入（上游 fbc3b9b） | — |
 | #102 | 移植：`systemPromptUpdate:'in-history'` | 待移植（M1 messages） | — |
 | #113 | 部分移植：messages.js 投影次序 | 待移植（M1 messages） | — |
 | #105 | 不移植：已被上游实现取代 | — | — |

@@ -48,18 +48,18 @@
 | PR | 处置 | 落点/理由 |
 | --- | --- | --- |
 | #39 | 已合入上游 main（清单联动） | 清单与探测/picker 的联动语义随上游 fbc3b9b 进入：`buildCatalog` 的形状 + `probe.js` 负类出局 + picker 成员资格三件套 |
-| （有意差异） | M0 决策 | 上游 main 的 catalog 含 EAC/Kilo 两条渠道车道，本仓库 M0 已按 AGENT-BRIEF §2.1 删除——cut 1c752e5 对 `src/catalog.js` 净删 307 行（438→131 行），现仅存 opencode 免费车道逻辑；此为与上游的**有意差异**，回灌上游更新时不得带回归 |
+| （有意差异） | M0 决策 | 上游 main 的 catalog 含 EAC/Kilo 两条渠道车道，本仓库 M0 已按 AGENT-BRIEF §2.1 删除——cut 5b84917 对 `src/catalog.js` 净删 307 行（438→131 行），现仅存 opencode 免费车道逻辑；此为与上游的**有意差异**，回灌上游更新时不得带回归 |
 
 ## 测试对照
 
 | 测试 | 覆盖点 |
 | --- | --- |
-| 暂无 | 暂无专属文件（原 `scripts/catalog-test.mjs` 已随 cut 1c752e5 删除；coverage-map 无 `catalog` 映射——M1 补，见 coverage-map） |
+| 暂无 | 暂无专属文件（原 `scripts/catalog-test.mjs` 已随 cut 5b84917 删除；coverage-map 无 `catalog` 映射——M1 补，见 coverage-map） |
 | 间接覆盖 | `scripts/sniff-test.mjs`/`scripts/effort-test.mjs`/`scripts/probes/*.mjs` 经 `capabilitiesFor` 使用能力目录（夹具正确性即其回归面）；`scripts/picker-test.mjs` 覆盖 `computeMembership/listModels/summary` 的成员资格消费，但**当前入口未通**（import `../index.js` 即 `src/chan-relay.js` 缺失） |
 
 ## 已知边界
 
-- **两处计数出入需核实**：AGENT-BRIEF/任务简报称删除后剩 119 行，实测 `src/catalog.js` 为 131 行（cut 后 `git show 1c752e5` 净删 307 行，438→131）——本档案以 131 为准。
+- **两处计数出入需核实**：AGENT-BRIEF/任务简报称删除后剩 119 行，实测 `src/catalog.js` 为 131 行（cut 后 `git show 5b84917` 净删 307 行，438→131）——本档案以 131 为准。
 - **index.js 未随 cut 重构**：仍 import 已删除的 `buildEacCatalog`/`buildKiloCatalog`/`isEacEntry`/`isKiloEntry`/`reviveKiloCatalog`（及 `src/eac.js`/`kilo.js`/`chan-relay.js` 等），加载即 `ERR_MODULE_NOT_FOUND`；凡 import `../index.js` 的测试（picker/recovery 后段/speed-stat/offline 等）当前全部跑不通，清单端到端亦然。
 - 能力目录是**正则序敏感**的：新 id 若被宽泛模式（如 `/^mimo/`）先命中会拿错能力档，新增特异档必须插在序首。
 - `parseListing` 不做去重（去重在 `buildCatalog`）；不校验 id 语义——上游给什么 id，菜单就以什么 id 下发（铁打 id）。
@@ -68,4 +68,4 @@
 ## 变更记录
 
 - 2026-10-07 建档（M0，依据上游 fbc3b9b + AGENT-BRIEF）。
-- M0（cut 1c752e5）：按 AGENT-BRIEF §2.1 删除 EAC/Kilo 车道导出与实现（`buildEacCatalog`/`buildKiloCatalog`/`isEacEntry`/`isKiloEntry`/`reviveKiloCatalog` 及其常量/正则/内联条目），现文件 131 行、仅 opencode 免费车道；与上游 main 的有意差异，回灌时需保留。
+- M0（cut 5b84917）：按 AGENT-BRIEF §2.1 删除 EAC/Kilo 车道导出与实现（`buildEacCatalog`/`buildKiloCatalog`/`isEacEntry`/`isKiloEntry`/`reviveKiloCatalog` 及其常量/正则/内联条目），现文件 131 行、仅 opencode 免费车道；与上游 main 的有意差异，回灌时需保留。
