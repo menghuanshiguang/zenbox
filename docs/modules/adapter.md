@@ -67,7 +67,7 @@
 
 | PR | 处置 | 落点/理由 |
 | --- | --- | --- |
-| #102 | 待移植（M1/M3） | `systemPromptUpdate: 'in-history'`（改 `src/adapter.js` + `adapter/dsh-llm.d.ts` + `scripts/picker-test.mjs`）；**当前代码未含**（`grep systemPromptUpdate` 全仓无命中）；AGENT-BRIEF §6 模块顺序口径：M0 仅建档，源码改动按模块批次移植 |
+| #102 | **已移植**（2026-10-07 M1，本仓 commit 见 pr-coverage） | `systemPromptUpdateFor(modelId)` + `resolveModel` 两分支展开（`src/adapter.js`）+ `types/dsh-llm.d.ts` 声明 `SystemPromptUpdate`/`LlmResolvedModelInfo`；chat/responses 线声明 `'in-history'`，messages 线不声明；测试 `test/unit/adapter.test.js`（adapter-unit） |
 | #75 | 待移植（M1/M3） | 配额命中 → `refreshOutletExit({avoid})` 换出口（改 `src/adapter.js` + `src/egress.js` + `index.js`）；**当前代码未含**（`grep onQuotaHit\|refreshOutletExit` 无命中，本模块 catch 仅回调 `onRegionBlocked`）；同 AGENT-BRIEF §6 |
 | #84 | 待移植（M1/M3） | 被拒换同区节点重发且不重复计费（改 `src/adapter.js` + `src/egress.js` + `src/store.js` + `index.js`）；**当前代码未含**（无对应计费/重发路径）；同 AGENT-BRIEF §6 |
 | #27 | 源码上游 main 已含；回归用例待补（M1） | tools 二次转换回归：`toToolDefs` 双拼写在 `src/messages.js` 已在位、`index.js` 不再预转换（无 `toToolDefs` import）、`scripts/forward-test.mjs` 已含其 5 项断言；计划中的独立回归用例落 `test/integration/forward-tools.test`（forward 层，但 `toToolDefs` 是本模块 `payloadFor`→`declared` 的出口，`test/` 现仅 `unit/config.test.js`） |
@@ -95,10 +95,11 @@
 - `imageRequestPricing` 恒 `undefined`：免费出口无按图报价，缺此方法会令 `ctx.llm.imageRequestPricing()` 抛错（issue #42）。
 - 不读 `config.json`；所有设置来自注入的 `state()` 快照。构造接收 `sealedCredential` 但模块内从未读取（`index.js` 注入的冗余项）。
 - 目录无条目时 `resolveModel` 不抛错，以 `contextWindow: 131072`、`defaultMaxTokens: 8192` 兜底返回；`runStream` 再按 membership 判定拒绝。
-- 未移植 #102（无 `systemPromptUpdate` 字段）、#75（配额不换出口）、#84（被拒不换同区节点重发）；现状即上游 fbc3b9b 行为。
-- 系统提示词仅 chat wire 经 `options.system` 拼进 payload；responses/messages 走消息序列，历史内注提示词属 #102 范畴。
+- 未移植 #75（配额不换出口）、#84（被拒不换同区节点重发）；现状即上游 fbc3b9b 行为。#102 已于 2026-10-07 移植（见关联 PR 表）。
+- 系统提示词: #102 落位后 `resolveModel` 按线形声明 `systemPromptUpdate`；chat wire 的提示词仍经 `options.system` 拼进 payload，历史内注提示词的消费由宿主按该字段决定。
 - 续写只在首段触发，且与 `checkpointFits` 预算检查绑定：`continuationBudget < MIN_BUDGET(512)` 或检查点放不下时放弃续写、按原错误上报。
 
 ## 变更记录
 
 - 2026-10-07 建档（M0，依据上游 fbc3b9b + AGENT-BRIEF）。
+- 2026-10-07 M1 移植 #102（`systemPromptUpdateFor` 两分支 + d.ts 声明）；红→绿 `test/unit/adapter.test.js` 4 断言；本文件同步。

@@ -4,6 +4,7 @@
   "tests": {
     "config-unit": "test/unit/config.test.js",
     "doc-sync": "test/meta/gates.test.js",
-    "forward-tools": "test/integration/forward-tools.test.js"
+    "forward-tools": "test/integration/forward-tools.test.js",
+    "adapter-unit": "test/unit/adapter.test.js"
   }
 }
