@@ -67,7 +67,7 @@ export function resolveLevel(level, model) {
   // resolving 'high' onto the free ladder's nearest rung logged 均衡 next to a
   // generation the model delivered at High.
   if (hasDeclaredEffortMenu(model)) {
-    const chosen = model.efforts.includes(level) ? level : eacDefaultLevel(model)
+    const chosen = model.efforts.includes(level) ? level : menuDefaultLevel(model)
     return { id: chosen }
   }
   if (!supportsEffort(model)) return undefined
@@ -187,7 +187,7 @@ function declaredEffortsFor(model) {
 }
 
 /** The declared default level id for a menu model, or its first level. */
-export function eacDefaultLevel(model) {
+export function menuDefaultLevel(model) {
   const levels = Array.isArray(model?.efforts) ? model.efforts : []
   if (levels.length === 0) return undefined
   return levels.includes(model.effortDefault) ? model.effortDefault : levels[0]
@@ -203,7 +203,7 @@ export function eacDefaultLevel(model) {
  */
 export function effortPatchFor(level, model) {
   if (!Array.isArray(model?.efforts) || model.efforts.length === 0) return null
-  const chosen = model.efforts.includes(level) ? level : eacDefaultLevel(model)
+  const chosen = model.efforts.includes(level) ? level : menuDefaultLevel(model)
   if (chosen === 'disabled' && model.effortOffPatch !== undefined) {
     return instantiatePatch(model.effortOffPatch, chosen)
   }
@@ -246,7 +246,7 @@ export function hasDeclaredEffortMenu(model) {
  * ("adapter returned an unknown default reasoning effort").
  */
 export function defaultEffortFor(model) {
-  if (hasDeclaredEffortMenu(model)) return eacDefaultLevel(model) ?? DEFAULT_LEVEL
+  if (hasDeclaredEffortMenu(model)) return menuDefaultLevel(model) ?? DEFAULT_LEVEL
   return DEFAULT_LEVEL
 }
 
@@ -256,13 +256,13 @@ export function effortsFor(model, requested, fallback) {
   return budgetLadder(model, requested, fallback).map(row => ({
     id: row.id,
     name: row.name,
-    description: `${kilos(row.tokens)} output ceiling, shared by thinking and the answer`
+    description: `${roundK(row.tokens)} output ceiling, shared by thinking and the answer`
       + (model.canDisableThinking === false ? ' (thinking cannot be switched off on this model)' : '')
       + `: ${LEVELS.find(level => level.id === row.id)?.hint ?? ''}`,
   }))
 }
 
 /** 16384 -> `16 K`, the spelling the settings page and the README both use. */
-function kilos(tokens) {
+function roundK(tokens) {
   return `${Math.round(tokens / 1024)} K`
 }
