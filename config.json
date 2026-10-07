@@ -1,0 +1,32 @@
+// zenbox 运行配置（AGENT-BRIEF §8）。允许 // 行注释。
+// 优先级: CLI flag > OFM_* 环境变量 > 本文件 > 默认值。
+// 校验失败会拒绝启动；未知键视为打字错误直接报错。
+{
+  // 本机转发监听（OpenAI 兼容入口）
+  "listen": { "host": "127.0.0.1", "port": 18899 },
+
+  // 局域网入口（M2 起可 bind；关闭时只有 loopback 可达）
+  // separateKey 恒为 false：LAN 复用本机转发 Key（§8 不设独立 Key）
+  "lan": { "enabled": false, "host": "0.0.0.0", "port": 18899, "separateKey": false },
+
+  // 上游 opencode 网关
+  "upstream": { "baseUrl": "https://opencode.ai", "timeoutMs": 45000 },
+
+  // 模型清单后台刷新周期（分钟）
+  "catalog": { "refreshMinutes": 30 },
+
+  // 可用性探测（探针默认档禁真实出网，live 档 --allow-live 才放行）
+  "probe": { "enabled": true, "intervalMinutes": 60, "concurrency": 2 },
+
+  // 默认思考档位: light | balanced | deep
+  "effort": "balanced",
+
+  // 出口: direct 直连 | proxy 走本地代理中继（M3）
+  "egress": { "mode": "direct" },
+
+  // 公网出口 IP：仅 banner/status 展示，后台按期刷新（§13）
+  "ip": { "refreshMinutes": 30, "providers": ["ipify", "ipinfo", "ipapi"] },
+
+  // 运行数据目录（Key 0600、清单缓存、统计）
+  "data": "./data"
+}

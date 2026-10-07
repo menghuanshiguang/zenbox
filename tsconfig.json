@@ -14,9 +14,14 @@
     "skipLibCheck": true
   },
   "include": [
-    "adapter/**/*"
+    "src/**/*.js",
+    "start.js",
+    "test/**/*.js",
+    "types/**/*.d.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "test/upstream/**",
+    "test/live/**"
   ]
 }

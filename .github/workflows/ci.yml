@@ -1,0 +1,40 @@
+# zenbox CI
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+jobs:
+  gates:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+          - os: ubuntu-latest
+            arch: arm64
+          - os: macos-latest
+          - os: windows-latest
+    runs-on: ${{ matrix.arch && format('{0}-{1}', matrix.os, matrix.arch) || matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install devDependencies（仅 typescript，红线②）
+        run: npm ci
+      - name: L0 + L1 + L2 门禁
+        run: npm test
+      - name: start 冒烟（banner 出现后优雅退出）
+        shell: bash
+        run: |
+          set -euo pipefail
+          node start.js status --json > smoke.json
+          grep -q '"version": "0.1.0"' smoke.json
+          OFM_SMOKE_MS=2000 node start.js start > smoke-start.log 2>&1
+          grep -q 'zenbox v0.1.0' smoke-start.log
+          grep -q '本机转发' smoke-start.log

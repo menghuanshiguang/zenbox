@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "note": "test id → 测试文件。gates.test.js 校验双向无孤儿：每个映射路径存在，每个 test/**/*.test.js 都有映射。pr-coverage.md 的测试列引用这里的 id。",
+  "tests": {
+    "config-unit": "test/unit/config.test.js",
+    "doc-sync": "test/meta/gates.test.js"
+  }
+}

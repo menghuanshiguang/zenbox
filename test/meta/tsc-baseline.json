@@ -1,0 +1,19 @@
+{
+    "note":  "tsc --noEmit 按文件错误数上限（棘轮）：新文件必须为 0；存量文件只许降不许升。M5 收敛到全 0。",
+    "total":  585,
+    "files":  {
+                  "src/adapter.js":  79,
+                  "src/catalog.js":  10,
+                  "src/effort.js":  29,
+                  "src/egress.js":  105,
+                  "src/forward.js":  117,
+                  "src/http.js":  43,
+                  "src/messages.js":  35,
+                  "src/probe.js":  23,
+                  "src/recovery.js":  23,
+                  "src/store.js":  21,
+                  "src/stream.js":  58,
+                  "src/trust.js":  11,
+                  "src/upstream.js":  31
+              }
+}
