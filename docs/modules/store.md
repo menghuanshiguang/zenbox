@@ -21,7 +21,7 @@
 | `MIN_DECODE_MS` | const | `250` | 低于该时长的 decode 窗不可信（`window.measurable=false`） |
 | `MAX_CREDIBLE_TPS` | const | `250` | 速度样本可信上限（只作 `deem`/挑选护栏） |
 | `decodeWindow` | function | `decodeWindow(decodeMs, tokens, ok)` | `measurable = ok && tokens>=0 && decodeMs>=MIN_DECODE_MS`；`tps = tokens/(decodeMs/1000)`，上限 `MAX_CREDIBLE_TPS` |
-| `recordUsage` | function | `recordUsage(stats, record)` | 按 `dayKey` 建/取天桶：`tokens += usage.input+output`、`requests++`、累计 decodeMs/decodeSamples、`cost` 按 `usage.cost` 取正数相加；终身桶累计（`cost`、`price`、`tokens` 按 `breakdown{input,output,cached,reasoning}` 分账）；总 `requests`；条件字段 `truncated`/`noUsage`/`recoveryId`/`attempt`/`elapsedMs`/`recoveryAttempt`/`recoveryScheduled`/`recovered`/`aborted` 原样保留进天桶样本；速度样本仅在可测时入 `llmSamples` 环形（400 点，`llmSamplesIndex` 游标覆写） |
+| `recordUsage` | function | `recordUsage(stats, record)` | 按 `dayKey` 建/取天桶：`tokens += usage.input+output`、`requests++`、累计 decodeMs/decodeSamples、`cost` 按 `usage.cost` 取正数相加；终身桶累计（`cost`、`price`、`tokens` 按 `breakdown{input,output,cached,reasoning}` 分账）；总 `requests`；条件字段 `truncated`/`noUsage`/`refusal`/`recoveryId`/`attempt`/`elapsedMs`/`recoveryAttempt`/`recoveryScheduled`/`recovered`/`aborted` 原样保留进天桶样本（`refusal: true`=#84 被拒轮标记，与替换它的重发轮区分——两轮同 `recoveryId` 同 attempt）；速度样本仅在可测时入 `llmSamples` 环形（400 点，`llmSamplesIndex` 游标覆写） |
 | `recordTurn` | function | `recordTurn(stats, record)` | 逻辑轮账：`logicalTurns`（诚实完成）与 `estimatedTurns`（估算）分别累计，毫秒耗时归入天桶 `decodeMs` 口径 |
 | `migrateStats` | function | `migrateStats(value) → value` | v<2：清掉旧速度总量（口径不可比）；v<3：重建 `failedRequests`、`logical+estimated` 轮字段；返回原对象/或初值，幂等 |
 | `pruneDays` | function | `pruneDays(state, keepDays=120)` | `days` 只留最近 `keepDays` 桶（保序截断），终身桶不动 |
@@ -89,3 +89,4 @@
 - 2026-10-07 建档（M0，依据上游 fbc3b9b + AGENT-BRIEF）。
 - 本仓库无改动（cut 未触及 store.js）；`STATS_VERSION=3` 与 `migrateStats` 的 v1/v2 清理是上游既有语义。
 - 2026-10-07 M2：落 §8.1 Key 三助手 `ensureKey`/`rotateKey`/`readKey`（`writeSecret` 私有，0600 + 尽力 chmod），import `generateKey` from `./forward.js`；start.js 接线 `data/forward-key|lan-key` 与 `stats.json`（cli-unit / key-rotate 两测试）。
+- 2026-10-08 M3：port-of #84——`recordUsage` 样本条件字段增 `refusal`（被拒轮与替换它的重发轮区分，同 `recoveryId` 同 attempt；adapter `record(...,{refusal:true})` 驱动）。

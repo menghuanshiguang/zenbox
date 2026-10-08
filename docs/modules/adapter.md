@@ -58,7 +58,7 @@
 | `deps.recordUsage({ at, model, effort, ok, input, output, reasoning, cacheRead, decodeTokens, ttftMs, decodeMs, origin: 'harness', recoveryId, attempt, elapsedMs, recoveryAttempt?, noUsage?, warnings? })` | 每 attempt 恰一次（`recorded` 幂等） | `index.js` → `recordUsage(stats, ...)` |
 | `deps.recordTurn({ at, model, ok, recovered, attempts, origin: 'harness' })` | 每逻辑回合恰一次（`turnRecorded` 幂等） | `recordTurn(stats, ...)` |
 | `deps.onRegionBlocked(entry.id)` | 捕获错误 `error.code === 'REGION_BLOCKED'` | `index.js` → `scheduleReprobe()` |
-| `deps.onQuotaHit(entry.id)` | 捕获错误 `error.code === 'RATE_LIMIT'`（#75：配额拒绝是出口的事实而非模型的事实） | start.js → `scheduleOutletRotation()`（M3 装配）→ `refreshOutletExit({avoid})` |
+| `deps.onQuotaHit(entry.id)` | 捕获错误 `error.code === 'RATE_LIMIT'`（#75：配额拒绝是出口的事实而非模型的事实）；#84：`mayRetry` 时 `await` 其返回值——`true`（宿主真换到新出口）才单次重发，`false`/undefined 或已 `delivered`/第二次拒绝则 `void` 调用后照常报错 | start.js → `scheduleOutletRotation()` → `refreshOutletExit({avoid})`；返回值驱动 `refusalRetry` |
 
 ## 网络面
 
@@ -71,7 +71,7 @@
 | #102 | **已移植**（2026-10-07 M1，本仓 commit 见 pr-coverage） | `systemPromptUpdateFor(modelId)` + `resolveModel` 两分支展开（`src/adapter.js`）+ `types/dsh-llm.d.ts` 声明 `SystemPromptUpdate`/`LlmResolvedModelInfo`；chat/responses 线声明 `'in-history'`，messages 线不声明；测试 `test/unit/adapter.test.js`（adapter-unit） |
 | #41 | **已移植**（2026-10-07 M2，本仓 commit 见 pr-coverage） | `stream` 的 `options.deviceIp` 并入 `postStreamed` 调用（本模块 line ~308）；端到端断言 `scripts/recovery-test.mjs`（deviceIp→网关 `x-forwarded-for`，缺失不带头） |
 | #75 | 已移植（M3，port-of #75） | 构造参数补 `onRegionBlocked?`/`onQuotaHit?` 文档；`runStream` catch 在 `onRegionBlocked` 后加 `CODE.quota → onQuotaHit`（换出口钩子，`scripts/retry-safety-test.mjs` quota hook 断言：只有 quota 一击、传输/地区拒绝不触发）；宿主半 `refreshOutletExit` 在 `src/egress.js` |
-| #84 | 待移植（M1/M3） | 被拒换同区节点重发且不重复计费（改 `src/adapter.js` + `src/egress.js` + `src/store.js` + `index.js`）；**当前代码未含**（无对应计费/重发路径）；同 AGENT-BRIEF §6 |
+| #84 | 已移植（M3，port-of #84）——被拒后换到新出口重发一次、不重复计费 | `runStream` 循环前加 `QUOTA_RETRY_LIMIT=1/refusals/refusalRetry`；catch 里 `refused=CODE.quota`、`mayRetry=refused&&!aborted&&!delivered&&refusals<1`、`refusalRetry=mayRetry && (await onQuotaHit)===true`（宿主换出口成功才重发）、拒而无换出口 `void onQuotaHit`；重发走 `record(...,{refusal:true})`+`attempt-=1 continue`（同 recoveryId 同 payload，`requestId` 改 `attempt===0&&refusals===0`）；finally 补 `!refusalRetry` 门防提前 finishTurn；usage 行 refusal 标记落 `src/store.js` |
 | #27 | 源码上游 main 已含；回归用例待补（M1） | tools 二次转换回归：`toToolDefs` 双拼写在 `src/messages.js` 已在位、`index.js` 不再预转换（无 `toToolDefs` import）、`scripts/forward-test.mjs` 已含其 5 项断言；计划中的独立回归用例落 `test/integration/forward-tools.test`（forward 层，但 `toToolDefs` 是本模块 `payloadFor`→`declared` 的出口，`test/` 现仅 `unit/config.test.js`） |
 
 （处置矩阵见 docs/pr-coverage.md；本表只列直接落进本模块的。）
@@ -80,7 +80,7 @@
 
 | 测试 | 覆盖点 |
 | --- | --- |
-| `scripts/retry-safety-test.mjs` | 8 种失败形态（transport / abort 前 / abort 中 / 未服务 / `CONFIG_DISABLED` / 流内 RegionError / 流内 FreeUsageLimitError / 400 拒绝）的 finish kind、`failure.code`、可重试性、region 重探触发、已交付文本判定；`failure` 逐叶子过 `isLosslessJson`（durable log round trip）；`providerRetryPolicy` 形状（首延迟有限、`ABORTED`/`CONFIG_DISABLED` 不在重试集）；`classifyFailure` 4xx→`CLIENT_ERROR` 不重试、5xx/408/425→`SERVER` 可重试；`mapUsage` 裸 usage 与 `cached_tokens` 拆分 |
+| `scripts/retry-safety-test.mjs` | 8 种失败形态（transport / abort 前 / abort 中 / 未服务 / `CONFIG_DISABLED` / 流内 RegionError / 流内 FreeUsageLimitError / 400 拒绝）的 finish kind、`failure.code`、可重试性、region 重探触发、已交付文本判定；`failure` 逐叶子过 `isLosslessJson`（durable log round trip）；`providerRetryPolicy` 形状（首延迟有限、`ABORTED`/`CONFIG_DISABLED` 不在重试集）；`classifyFailure` 4xx→`CLIENT_ERROR` 不重试、5xx/408/425→`SERVER` 可重试；`mapUsage` 裸 usage 与 `cached_tokens` 拆分；**#75 quota hook**（只有 quota 一击触发换出口钩子）；**#84 quota 重发四断言**（拒后换出口重发恰一次 rows=`[refused,ok]`、二次拒绝即止 `attempts=2`、宿主换不动不重发 `attempts=1`、text 已交付不重发 `attempts=1`） |
 | `scripts/truncation-test.mjs` | `finishReason` 三映射；参数被截断的工具调用降级 `max-tokens` 且块仍流式交付、计入成功调用；零块正常收尾→`EMPTY_RESPONSE` 且日志可回写；无终帧→error 而非 stop、已交付内容不重发、消息含耗时；RESPONSES/MESSAGES 终帧判定（`response.completed`/`message_stop`）；`finish=length` 自动续写一次（两次请求、正常 stop 收尾、续写正文拼接）、被截工具调用不续写、`streamRecovery=false` 时保持 `max-tokens` |
 | `scripts/recovery-test.mjs` | 纯推理 EOF 的有界续写回归：真实 `FreeModelAdapter` + 本地 HTTP 服务，实际请求体与流输出断言 |
 | `scripts/effort-test.mjs` | 思考预算阶梯真实发出且记录档位=发出档位（issue #2）；实例化 `FreeModelAdapter` 走完整链路 |
@@ -97,7 +97,7 @@
 - `imageRequestPricing` 恒 `undefined`：免费出口无按图报价，缺此方法会令 `ctx.llm.imageRequestPricing()` 抛错（issue #42）。
 - 不读 `config.json`；所有设置来自注入的 `state()` 快照。构造接收 `sealedCredential` 但模块内从未读取（`index.js` 注入的冗余项）。
 - 目录无条目时 `resolveModel` 不抛错，以 `contextWindow: 131072`、`defaultMaxTokens: 8192` 兜底返回；`runStream` 再按 membership 判定拒绝。
-- 未移植 #75（配额不换出口）、#84（被拒不换同区节点重发）；现状即上游 fbc3b9b 行为。#102 已于 2026-10-07 移植（见关联 PR 表）。
+- 未移植 #75（配额不换出口）的历史结论已被 M3 取代：#75/#82/#84 均已移植（见关联 PR 表）。#102 已于 2026-10-07 移植（见关联 PR 表）。
 - 系统提示词: #102 落位后 `resolveModel` 按线形声明 `systemPromptUpdate`；chat wire 的提示词仍经 `options.system` 拼进 payload，历史内注提示词的消费由宿主按该字段决定。
 - 续写只在首段触发，且与 `checkpointFits` 预算检查绑定：`continuationBudget < MIN_BUDGET(512)` 或检查点放不下时放弃续写、按原错误上报。
 
@@ -107,3 +107,4 @@
 - 2026-10-07 M1 移植 #102（`systemPromptUpdateFor` 两分支 + d.ts 声明）；红→绿 `test/unit/adapter.test.js` 4 断言；本文件同步。
 - 2026-10-07 M2 移植 #41：`options.deviceIp` → `postStreamed`；recovery-test 端到端一断言红→绿。
 - 2026-10-08 M3 移植 #75：`runStream` catch 加 `CODE.quota → onQuotaHit`，构造 JSDoc 补两回调；`scripts/retry-safety-test.mjs` quota hook 红→绿。
+- 2026-10-08 M3 移植 #84：`QUOTA_RETRY_LIMIT/refusals/refusalRetry` 拒后单次重发（宿主换出口成功才重发、attempt 回退同 payload、同 requestId 计费归同一逻辑轮、finally `!refusalRetry` 门）；`retry-safety-test` quota 重发四断言红→绿（8 形态全绿）。

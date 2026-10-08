@@ -13,7 +13,7 @@ gates.test 校验测试列引用的 id 存在。
 | #105 | 不移植：已被上游实现取代 | — | — |
 | #103 | 不移植：自更新三连修，本仓库无自更新器 | — | — |
 | #68 | 不移植：自更新三连修，本仓库无自更新器 | — | — |
-| #84 | 移植：被拒换同区节点重发不重复计费 | 待移植（M3 egress/adapter） | — |
+| #84 | 已移植（M3，port-of #84）——被拒换同区节点重发不重复计费 | `src/adapter.js` QUOTA_RETRY_LIMIT/refusalRetry/attempt 回退重发 + `src/egress.js` addressBlock/rankOutletCandidates/stepOffBlamedAddress（被拒网段连跳≤3）+ `src/store.js` usage 行 refusal 标记 + start.js 单飞轮换 refusal 模式 | upstream-retry-safety |
 | #82 | 已移植（M3，port-of #82） | `src/egress.js` 故障梯+`egressLane()`+中继分账+组 interval 60；宿主半 `onFault`/`onLane`/`onQuotaHit`→60s 冷却单飞轮换落 start.js | upstream-failover |
 | #76 | 已移植（M2，port-of #76） | `src/forward.js` `rankLanAddresses`/`VIRTUAL_IFACE`；面板轮询 API 不适用（无 Web UI），banner/status 现读（M4） | upstream-forward |
 | #75 | 已移植（M3，port-of #75）——onQuotaHit→refreshOutletExit({avoid}) | `src/adapter.js` quota 回调 + `src/egress.js` refreshOutletExit/controllerJson 升级；宿主冷却轮换已接线 start.js | upstream-egress |
