@@ -11,7 +11,7 @@
 | `ROUTE_MAIN` | const | `ROUTE_MAIN = 'our-free-model'` | 主路由 id（选择器第一分组） |
 | `ROUTE_REGION` | const | `ROUTE_REGION = 'our-free-model-region'` | 地区受限分组路由 id |
 | `ROUTE_LABELS` | const | `ROUTE_LABELS = { [ROUTE_MAIN]: 'Our Free Model', [ROUTE_REGION]: 'Our Free Model · region-limited' }` | 分组标题（选择器唯一可见的组名） |
-| `FreeModelAdapter` | class | `new FreeModelAdapter(dependencies)` | 适配器实例；`dependencies` = `{ state, resolveImage, recordUsage, recordTurn, warn }`（`index.js` 另注入 `onRegionBlocked`、`sealedCredential`，前者在 `runStream` 的 catch 中按 `CODE.region` 回调，后者本模块未读取） |
+| `FreeModelAdapter` | class | `new FreeModelAdapter(dependencies)` | 适配器实例；`dependencies` = `{ state, resolveImage, recordUsage, recordTurn, warn, onRegionBlocked?, onQuotaHit? }`（`runStream` catch 里 `CODE.region → onRegionBlocked`、`CODE.quota → onQuotaHit`；`index.js` 另注入的 `sealedCredential` 本模块未读取） |
 | `providerInfo` | method | `providerInfo(provider) → { id, name }` | 路由 id → 显示名 |
 | `providerRetryPolicy` | method | `providerRetryPolicy() → Object.freeze({ mode: 'normal', maxRetries: 2, retryableCodes: ['EMPTY_RESPONSE','SERVER','TIMEOUT','TRANSPORT'], initialDelayMs: 700, maxDelayMs: 8000, jitterRatio: 0.2 })` | 内核退避调度器原样读取的顶层字段；`REGION_BLOCKED`/`RATE_LIMIT` 有意缺席（重试只烧额度，issue #13） |
 | `imageRequestPricing` | method | `imageRequestPricing(_provider, _model) → undefined` | 恒 `undefined`：免费出口不报按图价格，且必须同步（issue #42） |
@@ -58,6 +58,7 @@
 | `deps.recordUsage({ at, model, effort, ok, input, output, reasoning, cacheRead, decodeTokens, ttftMs, decodeMs, origin: 'harness', recoveryId, attempt, elapsedMs, recoveryAttempt?, noUsage?, warnings? })` | 每 attempt 恰一次（`recorded` 幂等） | `index.js` → `recordUsage(stats, ...)` |
 | `deps.recordTurn({ at, model, ok, recovered, attempts, origin: 'harness' })` | 每逻辑回合恰一次（`turnRecorded` 幂等） | `recordTurn(stats, ...)` |
 | `deps.onRegionBlocked(entry.id)` | 捕获错误 `error.code === 'REGION_BLOCKED'` | `index.js` → `scheduleReprobe()` |
+| `deps.onQuotaHit(entry.id)` | 捕获错误 `error.code === 'RATE_LIMIT'`（#75：配额拒绝是出口的事实而非模型的事实） | start.js → `scheduleOutletRotation()`（M3 装配）→ `refreshOutletExit({avoid})` |
 
 ## 网络面
 
@@ -69,7 +70,7 @@
 | --- | --- | --- |
 | #102 | **已移植**（2026-10-07 M1，本仓 commit 见 pr-coverage） | `systemPromptUpdateFor(modelId)` + `resolveModel` 两分支展开（`src/adapter.js`）+ `types/dsh-llm.d.ts` 声明 `SystemPromptUpdate`/`LlmResolvedModelInfo`；chat/responses 线声明 `'in-history'`，messages 线不声明；测试 `test/unit/adapter.test.js`（adapter-unit） |
 | #41 | **已移植**（2026-10-07 M2，本仓 commit 见 pr-coverage） | `stream` 的 `options.deviceIp` 并入 `postStreamed` 调用（本模块 line ~308）；端到端断言 `scripts/recovery-test.mjs`（deviceIp→网关 `x-forwarded-for`，缺失不带头） |
-| #75 | 待移植（M1/M3） | 配额命中 → `refreshOutletExit({avoid})` 换出口（改 `src/adapter.js` + `src/egress.js` + `index.js`）；**当前代码未含**（`grep onQuotaHit\|refreshOutletExit` 无命中，本模块 catch 仅回调 `onRegionBlocked`）；同 AGENT-BRIEF §6 |
+| #75 | 已移植（M3，port-of #75） | 构造参数补 `onRegionBlocked?`/`onQuotaHit?` 文档；`runStream` catch 在 `onRegionBlocked` 后加 `CODE.quota → onQuotaHit`（换出口钩子，`scripts/retry-safety-test.mjs` quota hook 断言：只有 quota 一击、传输/地区拒绝不触发）；宿主半 `refreshOutletExit` 在 `src/egress.js` |
 | #84 | 待移植（M1/M3） | 被拒换同区节点重发且不重复计费（改 `src/adapter.js` + `src/egress.js` + `src/store.js` + `index.js`）；**当前代码未含**（无对应计费/重发路径）；同 AGENT-BRIEF §6 |
 | #27 | 源码上游 main 已含；回归用例待补（M1） | tools 二次转换回归：`toToolDefs` 双拼写在 `src/messages.js` 已在位、`index.js` 不再预转换（无 `toToolDefs` import）、`scripts/forward-test.mjs` 已含其 5 项断言；计划中的独立回归用例落 `test/integration/forward-tools.test`（forward 层，但 `toToolDefs` 是本模块 `payloadFor`→`declared` 的出口，`test/` 现仅 `unit/config.test.js`） |
 
@@ -105,3 +106,4 @@
 - 2026-10-07 建档（M0，依据上游 fbc3b9b + AGENT-BRIEF）。
 - 2026-10-07 M1 移植 #102（`systemPromptUpdateFor` 两分支 + d.ts 声明）；红→绿 `test/unit/adapter.test.js` 4 断言；本文件同步。
 - 2026-10-07 M2 移植 #41：`options.deviceIp` → `postStreamed`；recovery-test 端到端一断言红→绿。
+- 2026-10-08 M3 移植 #75：`runStream` catch 加 `CODE.quota → onQuotaHit`，构造 JSDoc 补两回调；`scripts/retry-safety-test.mjs` quota hook 红→绿。

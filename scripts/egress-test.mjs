@@ -13,7 +13,7 @@ import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import http from 'node:http'
-import { startEgressRelay, egressFetch, egressActive, renderMihomoConfig, findMihomoBinary, outletLabel, readOutletSelection } from '../src/egress.js'
+import { startEgressRelay, egressFetch, egressActive, renderMihomoConfig, findMihomoBinary, outletLabel, readOutletSelection, refreshOutletExit } from '../src/egress.js'
 
 let checks = 0
 let failures = 0
@@ -56,23 +56,35 @@ function listen(server, host) {
 }
 
 /** Stand-in for mihomo's external-controller: serves the routes the node
- *  reading uses and remembers the bearer token it was called with. */
+ *  reading uses and remembers the bearer token it was called with.
+ *  Route values may be functions (scripted 204s with no body); keys are tried
+ *  as `METHOD /path` first, then bare `/path`. Every call is recorded with its
+ *  body so tests can assert ordering (healthcheck first) and PUT payloads. */
 function startFakeController(routes) {
   const server = http.createServer((req, res) => {
     server.lastAuth = req.headers.authorization ?? ''
-    const body = routes[req.url]
-    if (body === undefined) {
-      res.writeHead(404, { 'content-type': 'application/json' })
-      res.end(JSON.stringify({ message: 'not found' }))
-      return
-    }
-    res.writeHead(200, { 'content-type': 'application/json' })
-    res.end(JSON.stringify(body))
+    const chunks = []
+    req.on('data', chunk => chunks.push(chunk))
+    req.on('end', () => {
+      const body = Buffer.concat(chunks).toString('utf8')
+      server.calls.push({ method: req.method, path: req.url, body })
+      const route = routes[`${req.method} ${req.url}`] ?? routes[req.url]
+      if (route === undefined) {
+        res.writeHead(404, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ message: 'not found' }))
+        return
+      }
+      if (typeof route === 'function') { route(req, res); return }
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify(route))
+    })
   })
+  server.calls = []
   const port = listen(server, '127.0.0.1')
   return port.then(resolved => ({
     port: resolved,
     get lastAuth() { return server.lastAuth ?? '' },
+    get calls() { return server.calls },
     close: () => new Promise(resolve => server.close(() => resolve())),
   }))
 }
@@ -399,6 +411,65 @@ async function main() {
   const fallback = await readOutletSelection({ managed: { mixedPort: 1, apiPort: grouped.port, secret: 'shh', dir: dataDir } })
   check(fallback?.node === 'HK 1' && fallback?.delayMs === 210, 'the group history is used when the provider table has no row')
   await grouped.close()
+
+  // 13 — outlet rotation (#75): force a full re-measure, then step off the
+  // exit that just refused a quota (avoid list = refused + cooldown window).
+  stage = 'outlet rotation'
+  check(await refreshOutletExit(null) === null, 'no outlet means nothing to rotate')
+  check(await refreshOutletExit({}) === null, 'a client outlet has no controller to ask')
+  const rotating = await startFakeController({
+    'GET /providers/proxies/egress/healthcheck': (req, res) => { res.writeHead(204); res.end() },
+    'PUT /proxies/ofm-outlet': (req, res) => { res.writeHead(204); res.end() },
+    '/proxies/ofm-outlet': { now: 'JP5', type: 'URLTest', history: [] },
+    '/providers/proxies/egress': { proxies: [
+      { name: 'JP5', history: [{ time: 'now', delay: 294 }] },
+      { name: 'JP4', history: [{ delay: 380 }] },
+      { name: 'DE1' },
+    ] },
+  })
+  const rotation = await refreshOutletExit(
+    { managed: { mixedPort: 1, apiPort: rotating.port, secret: 'shh', dir: dataDir } },
+    { avoid: ['JP5'] },
+  )
+  check(
+    `${rotating.calls[0]?.method} ${rotating.calls[0]?.path}` === 'GET /providers/proxies/egress/healthcheck',
+    'the first controller call is the provider healthcheck — every node re-measured now',
+  )
+  check(
+    [rotation?.previous, rotation?.node, rotation?.delayMs, rotation?.switched, rotation?.candidates].join('|') === 'JP5|JP4|380|true|1',
+    `rotation picks the best unrefused node: got ${JSON.stringify(rotation)}`,
+  )
+  const switchCall = rotating.calls.find(call => call.method === 'PUT' && call.path === '/proxies/ofm-outlet')
+  check(switchCall !== undefined && JSON.parse(switchCall.body ?? '{}').name === 'JP4', 'the group is switched to the chosen node by PUT')
+  await rotating.close()
+  // The one node that refused, refused: no candidate outside the avoid list,
+  // and nothing gets PUT — the outlet stays exactly where it was.
+  const lonely = await startFakeController({
+    'GET /providers/proxies/egress/healthcheck': (req, res) => { res.writeHead(204); res.end() },
+    '/proxies/ofm-outlet': { now: 'JP5', history: [] },
+    '/providers/proxies/egress': { proxies: [{ name: 'JP5', history: [{ delay: 294 }] }] },
+  })
+  const alone = await refreshOutletExit(
+    { managed: { mixedPort: 1, apiPort: lonely.port, secret: 'shh', dir: dataDir } },
+    { avoid: ['JP5'] },
+  )
+  check(alone === null, 'the last node refused leaves the outlet untouched (null)')
+  check(!lonely.calls.some(call => call.method === 'PUT'), 'no switch is attempted without a candidate')
+  await lonely.close()
+  // The refusal already sits on the best node? Then nothing moved: reported,
+  // not switched, and no PUT either.
+  const staying = await startFakeController({
+    'GET /providers/proxies/egress/healthcheck': (req, res) => { res.writeHead(204); res.end() },
+    '/proxies/ofm-outlet': { now: 'JP4', history: [] },
+    '/providers/proxies/egress': { proxies: [{ name: 'JP4', history: [{ delay: 380 }] }] },
+  })
+  const same = await refreshOutletExit({ managed: { mixedPort: 1, apiPort: staying.port, secret: 'shh', dir: dataDir } })
+  check(
+    [same?.node, same?.switched].join('|') === 'JP4|false',
+    `already on the best node reports switched:false: got ${JSON.stringify(same)}`,
+  )
+  check(!staying.calls.some(call => call.method === 'PUT'), 'no switch is attempted when the best node already leads')
+  await staying.close()
 
   fs.rmSync(dataDir, { recursive: true, force: true })
   console.log(`${failures === 0 ? 'PASS' : 'FAIL'}: egress ${checks - failures}/${checks} checks`)

@@ -81,6 +81,7 @@ const STATE = () => ({
 })
 
 /** Run the real adapter and return the failure object it yields, if any. */
+const quotaHits = []
 async function failureFor(model, { state = STATE, signal, abortAfterFirstText } = {}) {
   let regionSignal
   const adapter = new FreeModelAdapter({
@@ -88,6 +89,10 @@ async function failureFor(model, { state = STATE, signal, abortAfterFirstText } 
     recordUsage: () => {},
     warn: () => {},
     onRegionBlocked: id => { regionSignal = id },
+    // #75: a quota refusal is a fact about the exit, not the model — only the
+    // RATE_LIMIT shape may trigger an outlet rotation; transport and region
+    // refusals must not.
+    onQuotaHit: id => { quotaHits.push(id) },
   })
   // Cancelled from inside the consumer rather than on a wall clock: the point of
   // this case is "text had already been handed over when the user stopped it", and
@@ -231,8 +236,11 @@ console.log(`${cachedOk ? 'ok   ' : 'FAIL '} a cache hit is taken out of the dis
 await new Promise(resolve => setTimeout(resolve, 900))
 await stub.close()
 
-const ok = failed === 0 && policyShapeOk && usageOk && cachedOk && abortedNeverRetried && clientOk
+const quotaHookOk = quotaHits.length === 1 && quotaHits[0] === 'quota-model-free'
+console.log(`${quotaHookOk ? 'ok   ' : 'FAIL '} only the quota refusal fires onQuotaHit: ${JSON.stringify(quotaHits)}`)
+
+const ok = failed === 0 && policyShapeOk && usageOk && cachedOk && abortedNeverRetried && clientOk && quotaHookOk
 console.log(ok
   ? `\nretry-safety: all ${cases.length} failure shapes are classified, retried correctly, and durable-log safe`
-  : `\nretry-safety: ${failed + (policyShapeOk ? 0 : 1) + (usageOk ? 0 : 1) + (cachedOk ? 0 : 1) + (abortedNeverRetried ? 0 : 1) + (clientOk ? 0 : 1)} failure(s)`)
+  : `\nretry-safety: ${failed + (policyShapeOk ? 0 : 1) + (usageOk ? 0 : 1) + (cachedOk ? 0 : 1) + (abortedNeverRetried ? 0 : 1) + (clientOk ? 0 : 1) + (quotaHookOk ? 0 : 1)} failure(s)`)
 process.exit(ok ? 0 : 1)

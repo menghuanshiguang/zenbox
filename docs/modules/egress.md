@@ -14,9 +14,10 @@
 | `renderMihomoConfig` | function | `renderMihomoConfig({subscription, mixedPort, apiPort, secret, auth, logFile}) → string` | 生成 mihomo.yaml：`mixed-port`、`bind-address: 127.0.0.1`、`allow-lan: false`、`authentication: ["ofm:<hex>"]`、`mode: rule`、`log-level: warning`、`external-controller: 127.0.0.1:<apiPort>` + `secret`、`dns.enable: false`、proxy-provider `egress`（http，`interval: 86400`，health-check `http://www.gstatic.com/generate_204` 每 300s `expected-status: 204`——429/错误页即判死节点）、组 `ofm-outlet`（url-test，`tolerance: 50`，`interval: 300`）、`rules: MATCH,ofm-outlet` |
 | `findMihomoBinary` | function | `findMihomoBinary(explicit) → string` | 显式路径（不存在抛 `the mihomo path "<p>" does not exist`）→ `PATH` → 常见安装目录（win32: `mihomo.exe/verge-mihomo.exe/verge-mihomo-alpha.exe/clash-meta.exe/clash.exe`，含 Clash Verge roots；posix: `mihomo/clash-meta/clash` 与 `/usr/local/bin` 等）；全落空抛 `no mihomo binary found — set its path in the egress settings (Clash Verge installs one, or get it from MetaCubeX/mihomo)` |
 | `outletLabel` | function | `outletLabel(url) → string` | `protocol//host`；订阅链接的 path 即凭据，故只露主机名，解析失败返回 `''` |
-| `readOutletSelection` | function | `readOutletSelection(relay, {timeoutMs=4000}) → Promise<{node, delayMs} \| null>` | 只对托管 mihomo：GET controller `/proxies/ofm-outlet` 取 `now`，再 GET `/providers/proxies/egress` 读胜者延迟（provider 表 → 组 history → 0 兜底）；client 出口或 url-test 未决返回 `null`；controller 非 200/非 JSON/超时抛 `mihomo controller <path> answered <code>` / `sent unparsable JSON` / `timed out`（调用方保留上次数值） |
+| `readOutletSelection` | function | `readOutletSelection(relay, {timeoutMs=4000}) → Promise<{node, delayMs} \| null>` | 只对托管 mihomo：GET controller `/proxies/ofm-outlet` 取 `now`，再 GET `/providers/proxies/egress` 读胜者延迟（provider 表 → 组 history → 0 兜底）；client 出口或 url-test 未决返回 `null`；controller 非 2xx/非 JSON/超时抛 `mihomo controller <method> <path> answered <code>` / `sent unparsable JSON` / `timed out`（调用方保留上次数值） |
+| `refreshOutletExit` | function | `refreshOutletExit(relay, {avoid=[], timeoutMs=4000}) → Promise<{node, delayMs, previous, switched, candidates} \| null>` | #75 配额感知换出口：先 `PUT? 否——GET /providers/proxies/egress/healthcheck` 强制全节点重测，再读组 `now` 与 provider 排名；候选=延迟>0 且不在 `avoid`（刚被拒+冷却窗口）内按 delay 升序；无 controller（client 单代理）/无候选回 `null` 且出口原封不动；已是最优回 `switched:false`；否则 `PUT /proxies/ofm-outlet {name}` 切换 |
 
-内部常量与私有件：`RELAY_HOST='127.0.0.1'`、`TARGET_HEADER='x-ofm-egress-target'`、`KEY_HEADER='x-ofm-egress-key'`、`DIAL_TIMEOUT_MS=10_000`、`READY_TIMEOUT_MS=15_000`、`CLIENT_SCHEMES={http:,https:,socks5:,socks5h:}`、`HOP_BY_HOP`（九个逐跳头，含 `transfer-encoding`——Node 自行推导成帧），以及 `relayRequest`/`openTunnel`/`netConnect`/`httpConnect`/`socks5Connect`(RFC1928+可选1929，`socks5h` 交代理解析域名)/`encodeAddress`/`readUntil`/`withTimeout`/`freePort`/`waitForPort`/`killChild`(先礼后 SIGKILL，3s)/`sameSecret`(`timingSafeEqual` 恒时比较，长度 ≥16 且相等)/`sendLocal`/`failOnce`/`controllerJson`。
+内部常量与私有件：`RELAY_HOST='127.0.0.1'`、`TARGET_HEADER='x-ofm-egress-target'`、`KEY_HEADER='x-ofm-egress-key'`、`DIAL_TIMEOUT_MS=10_000`、`READY_TIMEOUT_MS=15_000`、`CLIENT_SCHEMES={http:,https:,socks5:,socks5h:}`、`HOP_BY_HOP`（九个逐跳头，含 `transfer-encoding`——Node 自行推导成帧），以及 `relayRequest`/`openTunnel`/`netConnect`/`httpConnect`/`socks5Connect`(RFC1928+可选1929，`socks5h` 交代理解析域名)/`encodeAddress`/`readUntil`/`withTimeout`/`freePort`/`waitForPort`/`killChild`(先礼后 SIGKILL，3s)/`sameSecret`(`timingSafeEqual` 恒时比较，长度 ≥16 且相等)/`sendLocal`/`failOnce`/`controllerJson(managed, path, timeoutMs, {method='GET', body}?)`（2xx 即过——mihomo 的切换与强制健康检查答 204 无体 → 解析为 `null`；body 自带 content-type/length）。
 
 ## 依赖关系
 
@@ -58,7 +59,7 @@
 
 | PR | 处置 | 落点/理由 |
 | --- | --- | --- |
-| #75 | 待移植 | `onQuotaHit` → `refreshOutletExit({avoid})` 换出口逻辑；**当前代码未含**（429 只由 mihomo 健康检查 `expected-status: 204` 判死节点，无 quota 命中回调） |
+| #75 | 已移植（M3，port-of #75） | `refreshOutletExit({avoid})` 落 `src/egress.js`（强制 provider healthcheck 全测→按 avoid 过滤取最优→PUT 切换；`controllerJson` 升级 method/body/2xx/空体）；`src/adapter.js` catch 里 `CODE.quota → onQuotaHit`（`src/http.js` `CODE.quota='RATE_LIMIT'`）；冷却（60s）、`limitedNodes` TTL（10min）、单飞轮换的宿主半装配在 start.js（M3 后续接线）；README 口径随 M5 README 重写 |
 | #82 | 待移植 | egress 故障切换与 `x-ofm-egress-fault` 三类分账；**当前代码未含**（`HOP_BY_HOP` 与中继头集合中无此头，故障只表现为 502 与死子进程重启） |
 | #84 | 待移植 | 被拒换同区节点重发且不重复计费；**当前代码未含**（中继每请求单隧道、无重发路径，计费在 `src/store.js` 按到达 usage 记） |
 | #45 | 部分移植 | 落点=`egress.mode=proxy`：213KB diff 吸收的 proxy/secret 逻辑经由 M0 新配置层承接（`src/config.js` `egress.mode ∈ {direct, proxy}`）；运行时 `egress.js` 仍只认 settings 注入的 `subscription\|client`，proxy 模式接入当前代码未含（待 M0 入口接线） |
@@ -67,7 +68,8 @@
 
 | 测试 | 覆盖点 |
 | --- | --- |
-| `scripts/egress-test.mjs` | 实测 `PASS: egress 50/50 checks`（全回环双替身，不触网）：假 socks5（带/不带认证）与假 HTTP CONNECT 拨号、echo 目标（429 透传、`/stream` 分片节奏）、`egressFetch` 改道与直通、错误 key 三连拒 403、`file:///` 拒绝、方法/体/头（`x-keep`）逐字转发、`socks5h` 域名块（atyp 3）、CONNECT PUT 载荷、`renderMihomoConfig` 渲染、`findMihomoBinary`、`outletLabel`、`readOutletSelection`。托管 mihomo 真拉起不在离线门禁内（文件头注明属安装期 smoke） |
+| `scripts/egress-test.mjs` | 实测 `PASS: egress 59/59 checks`（全回环双替身，不触网）：假 socks5（带/不带认证）与假 HTTP CONNECT 拨号、echo 目标（429 透传、`/stream` 分片节奏）、`egressFetch` 改道与直通、错误 key 三连拒 403、`file:///` 拒绝、方法/体/头（`x-keep`）逐字转发、`socks5h` 域名块（atyp 3）、CONNECT PUT 载荷、`renderMihomoConfig` 渲染、`findMihomoBinary`、`outletLabel`、`readOutletSelection`；**第13节 outlet rotation（#75，9 断言）**：null/无 controller 两态、假 controller 三路由（healthcheck 204 函数路由、组、provider 表）断言首个调用必是强制全测、旋转结果五元组、PUT body 换到 JP4、唯一被拒节点→null 零 PUT、已是最优→`switched:false` 零 PUT。托管 mihomo 真拉起不在离线门禁内（文件头注明属安装期 smoke） |
+| `scripts/retry-safety-test.mjs` | 实测 `retry-safety: all 8 failure shapes…`（8 形态分类/重试/持久日志）；**#75 quota hook**：`onQuotaHit` 只收 `quota-model-free` 一击（传输失败与地区拒绝不许触发换出口钩子） |
 
 ## 已知边界
 
@@ -75,10 +77,11 @@
 - 超时模型固定：拨号/TLS/握手 10s、mihomo 就绪 15s、`readUntil` 收满 16KB 未完成即拒；中继每请求新隧道（`keepAlive: false`），不复用。
 - `client` 出口没有 controller，`readOutletSelection` 恒 `null`；url-test 未定档时同样 `null`。
 - 死子进程的重试策略归 index.js（退避 `scheduleOutletRestart`），本模块只上报一次死亡；启动中途失败的子进程由 `startEgressRelay` 自己 reap（`killChild`）。
-- #75/#82/#84 的配额感知换出口、故障分账、同区重发当前代码未含；#45 只到配置层（`direct|proxy`）部分移植。
+- #75 的配额感知换出口已移植（模块层；宿主冷却/单飞轮换在 start.js，见变更记录）；#82 故障分账与 #84 同区重发当前代码未含；#45 只到配置层（`direct|proxy`）部分移植。
 - 中继不缓冲流（体与 SSE 都按字节过），依赖 Node 自身流控维持 chunk 节奏。
 
 ## 变更记录
 
 - 2026-10-07 建档（M0，依据上游 fbc3b9b + AGENT-BRIEF）。
 - M0：新配置层 `src/config.js` 以 `egress.mode: {direct, proxy}` 承接 PR #45 的 proxy 语义；与 `SETTINGS_INITIAL.egress.mode: subscription|client` 双层并存，运行时接线待入口重建。
+- 2026-10-08 M3：port-of #75 落地——`refreshOutletExit` 导出 + `controllerJson` 升级（method/body、2xx 通过、204 空体→null）；`egress-test` 第13节 9 断言红→绿（59/59），`retry-safety-test` quota hook 红→绿。

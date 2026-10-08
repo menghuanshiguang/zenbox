@@ -14,6 +14,8 @@
     "upstream-picker": "scripts/picker-test.mjs",
     "upstream-recovery": "scripts/recovery-test.mjs",
     "upstream-offline": "scripts/offline-test.mjs",
-    "upstream-forward": "scripts/forward-test.mjs"
+    "upstream-forward": "scripts/forward-test.mjs",
+    "upstream-egress": "scripts/egress-test.mjs",
+    "upstream-retry-safety": "scripts/retry-safety-test.mjs"
   }
 }
