@@ -17,6 +17,7 @@ import { startForwardServer, startLanRelay } from './src/forward.js'
 import { FreeModelAdapter } from './src/adapter.js'
 import { createRunForwarded, computeMembership, routableModelIds, publicModelRows } from './src/turn.js'
 import { JsonStore, STATS_INITIAL, recordUsage, recordTurn, ensureKey, rotateKey, readKey } from './src/store.js'
+import { startEgressRelay, refreshOutletExit, readOutletSelection } from './src/egress.js'
 import { FALLBACK_CATALOG } from './src/catalog.js'
 
 export const VERSION = '0.1.0'
@@ -163,6 +164,58 @@ const commands = {
     const stats = new JsonStore(`${config.data}/stats.json`, STATS_INITIAL, { log: () => {} })
     // ② 运行链组装（与 recovery-test withForward 同构）：availability 空 = 无裁决全放行，
     //    M3 probe 轮落 data/availability.json 后在此重放。
+    // ①′ 出口（#75/#82 宿主半）：非 direct 才起本地出口中继，配额拒绝与隧道
+    //    连击都走同一条换出口路（60s 冷却 + 单飞 + 被拒节点 10min 候补）
+    let egressRelay = null
+    /** @type {Map<string, number>} 被限流过的节点 → 记录时刻（10 分钟候补） */
+    const limitedNodes = new Map()
+    const OUTLET_ROTATE_COOLDOWN_MS = 60_000
+    const OUTLET_LIMITED_TTL_MS = 10 * 60_000
+    let lastRotationAt = 0
+    /** @type {Promise<void>|null} */
+    let rotating = null
+    const rotateOutletExit = async reason => {
+      const relay = egressRelay
+      if (relay === null) return
+      if (relay.managed === null || relay.managed === undefined) {
+        log(`[egress] ${reason}；client 单代理出口没有节点可换`)
+        return
+      }
+      const now = Date.now()
+      for (const [node, at] of limitedNodes) if (now - at > OUTLET_LIMITED_TTL_MS) limitedNodes.delete(node)
+      const selection = await readOutletSelection(relay)
+      const current = selection?.node ?? null
+      const avoid = [...limitedNodes.keys()]
+      if (current !== null) avoid.push(current)
+      const rotated = await refreshOutletExit(relay, { avoid })
+      if (current !== null) limitedNodes.set(current, now)
+      if (rotated === null) {
+        log(`[egress] ${reason}；候选都轮过了，留在 ${current ?? '当前节点'}`)
+        return
+      }
+      log(`[egress] ${reason} → ${rotated.previous ?? current ?? '?'} 换到 ${rotated.node}（${rotated.delayMs}ms，${rotated.candidates} 个候选${rotated.switched ? '' : '，已在最优未变动'}）`)
+    }
+    const scheduleOutletRotation = reason => {
+      if (egressRelay === null) return
+      if (Date.now() - lastRotationAt < OUTLET_ROTATE_COOLDOWN_MS) return
+      if (rotating !== null) return
+      lastRotationAt = Date.now()
+      rotating = rotateOutletExit(reason)
+        .catch(error => log(`[egress] 换出口失败: ${error?.message ?? error}`))
+        .finally(() => { rotating = null })
+    }
+    if (config.egress.mode !== 'direct') {
+      // 出口配了却起不来就退出，不悄悄改走直连：把用户的流量从他们配置要
+      // 绕开的地址旁路出去，比启动失败更糟。config 层的 proxy（#45）形状
+      // {url, password} 映射到拨号器的 client 语义——直拨已给代理，不起 mihomo。
+      egressRelay = await startEgressRelay({
+        config: () => ({ mode: 'client', url: config.egress.proxy.url }),
+        dataDir: config.data,
+        log: line => log(`[egress] ${line}`),
+        onFault: error => scheduleOutletRotation(`出口连击失败（${error?.message ?? error}）`),
+        onLane: lane => log(`[egress] 通道 ${lane.transition === 'bench' ? `切直连 ${Math.round((lane.benchUntil - Date.now()) / 1000)}s` : '回中继'}（direct=${lane.direct}, strikes=${lane.strikes}）`),
+      })
+    }
     const availability = AVAILABILITY_EMPTY
     const state = () => ({
       catalog: FALLBACK_CATALOG,
@@ -175,6 +228,8 @@ const commands = {
       recordUsage: row => recordUsage(stats, row),
       recordTurn: row => recordTurn(stats, row),
       warn: message => log(`[warn] ${message}`),
+      // 配额拒绝是出口事实，健康检查看不见（gstatic 对刚被限流的节点照样 204）
+      onQuotaHit: () => scheduleOutletRotation('配额拒绝（Rate limit exceeded）'),
     })
     const complete = createRunForwarded({
       getCatalog: () => FALLBACK_CATALOG,
@@ -233,6 +288,7 @@ const commands = {
       log(`[stop] 收到 ${signal}，优雅关闭（中继/转发口回收 + 统计落盘）`)
       try { if (relay !== null) await relay.close() } catch { /* 关闭尽力 */ }
       try { await forward.close() } catch { /* 关闭尽力 */ }
+      try { if (egressRelay !== null) await egressRelay.close() } catch { /* 关闭尽力 */ }
       stats.dispose()
       process.exit(0)
     }

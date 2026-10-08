@@ -40,7 +40,7 @@
 - trust.js → （无本地依赖）
 - turn.js → adapter.js, forward.js, probe.js
 - upstream.js → （无本地依赖）
-- start.js → adapter.js, catalog.js, config.js, forward.js, store.js, turn.js
+- start.js → adapter.js, catalog.js, config.js, egress.js, forward.js, store.js, turn.js
 <!-- deps:end -->
 
 ## ③ 阅读路径

@@ -16,6 +16,7 @@
     "upstream-offline": "scripts/offline-test.mjs",
     "upstream-forward": "scripts/forward-test.mjs",
     "upstream-egress": "scripts/egress-test.mjs",
-    "upstream-retry-safety": "scripts/retry-safety-test.mjs"
+    "upstream-retry-safety": "scripts/retry-safety-test.mjs",
+    "upstream-failover": "scripts/failover-test.mjs"
   }
 }
