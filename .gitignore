@@ -7,6 +7,9 @@ Thumbs.db
 # Runtime state (generated key, caches)
 data/
 
+# 内置 mihomo 二进制（fetch-mihomo 产物；manifest.json 入库 pin 版本）
+vendor/mihomo/*/
+
 # PR diff scratch (fetched on demand, never committed)
 .pr-diffs/
 

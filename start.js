@@ -276,7 +276,7 @@ const commands = {
       // 形状 {url, password} 直拨已给代理（密码走独立字段不进 url），
       // subscription 起受管 mihomo 拉订阅。
       const egressShape = config.egress.mode === 'subscription'
-        ? { mode: 'subscription', url: config.egress.subscription.url }
+        ? { mode: 'subscription', url: config.egress.subscription.url, token: config.egress.subscription.token }
         : { mode: 'client', url: config.egress.proxy.url, password: config.egress.proxy.password }
       egressRelay = await startEgressRelay({
         config: () => egressShape,

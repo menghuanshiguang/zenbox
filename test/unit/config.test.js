@@ -176,5 +176,19 @@ check('loadConfig: --port 与 --verbose 落位', () => {
   assert.equal(cfg.listen.port, 19007)
   assert.equal(cfg.log.level, 'debug')
 })
+check('DEFAULTS: upstream.key 与 egress 订阅凭据字段在位', () => {
+  assert.equal(DEFAULTS.upstream.key, '', '上游 API key 默认空 = opencode 免密')
+  assert.equal(DEFAULTS.egress.subscription.url, '')
+  assert.equal(DEFAULTS.egress.subscription.token, '')
+})
+check('validate: upstream.key 非字符串被拒', () => {
+  expectConfigError(() => validateConfig({ ...structuredClone(DEFAULTS), upstream: { base: 'https://x', timeoutMs: 45000, key: 123 } }), 'upstream.key')
+})
+check('loadConfig: 文件里的 upstream.key 保留、OFM_UPSTREAM_KEY 覆盖', () => {
+  const fromEnv = loadConfig({ argv: [], env: { OFM_UPSTREAM_KEY: 'sk-env' } })
+  assert.equal(fromEnv.upstream.key, 'sk-env')
+  const fromFile = loadConfig({ argv: [], env: {} })
+  assert.equal(typeof fromFile.upstream.key, 'string') // 文件层与默认层都留键
+})
 
 console.log(`config.test: ${passed} passed${process.exitCode ? '（有失败）' : ''}`)

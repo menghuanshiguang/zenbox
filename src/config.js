@@ -26,7 +26,7 @@ export class ConfigError extends Error {
  * @typedef {object} ZenConfig
  * @property {{host: string, port: number, fallback: boolean, key: string}} listen
  * @property {{enabled: boolean, host: string, port: number, key: string}} lan
- * @property {{base: string, timeoutMs: number}} upstream
+ * @property {{base: string, timeoutMs: number, key: string}} upstream
  * @property {{refreshMinutes: number, allow: string[], deny: string[]}} catalog
  * @property {{enabled: boolean, intervalMinutes: number, concurrency: number, timeoutMs: number}} probe
  * @property {string} effort
@@ -41,7 +41,7 @@ export class ConfigError extends Error {
 export const DEFAULTS = Object.freeze({
   listen: { host: '127.0.0.1', port: 18899, fallback: true, key: '' },
   lan: { enabled: false, host: '0.0.0.0', port: 18899, key: '' },
-  upstream: { base: 'https://opencode.ai', timeoutMs: 45000 },
+  upstream: { base: 'https://opencode.ai', timeoutMs: 45000, key: '' },
   catalog: { refreshMinutes: 30, allow: [], deny: [] },
   probe: { enabled: true, intervalMinutes: 60, concurrency: 2, timeoutMs: 45000 },
   effort: DEFAULT_LEVEL,
@@ -56,7 +56,7 @@ const KNOWN_KEYS = new Set(['listen', 'lan', 'upstream', 'catalog', 'probe', 'ef
 const SECTION_KEYS = {
   listen: new Set(['host', 'port', 'fallback', 'key']),
   lan: new Set(['enabled', 'host', 'port', 'key']),
-  upstream: new Set(['base', 'timeoutMs']),
+  upstream: new Set(['base', 'timeoutMs', 'key']),
   catalog: new Set(['refreshMinutes', 'allow', 'deny']),
   probe: new Set(['enabled', 'intervalMinutes', 'concurrency', 'timeoutMs']),
   egress: new Set(['mode', 'subscription', 'proxy']),
@@ -209,6 +209,7 @@ export function validateConfig(raw) {
   expectInt(cfg.lan.port, 'lan.port', 1, 65535)
   expectString(cfg.lan.key, 'lan.key', { nonEmpty: false })
   expectString(cfg.upstream.base, 'upstream.base')
+  expectString(cfg.upstream.key, 'upstream.key', { nonEmpty: false })
   /** @type {URL|null} */
   let url = null
   try { url = new URL(cfg.upstream.base) } catch { url = null }
@@ -279,6 +280,7 @@ function envLayerOf(env) {
       : { enabled: true, ...parseHostPort(value, 'OFM_LAN') }
   }
   if (env.OFM_UPSTREAM) layer.upstream = { base: env.OFM_UPSTREAM }
+  if (env.OFM_UPSTREAM_KEY !== undefined) layer.upstream = { ...layer.upstream, key: env.OFM_UPSTREAM_KEY }
   if (env.OFM_TIMEOUT !== undefined) layer.upstream = { ...layer.upstream, timeoutMs: int('OFM_TIMEOUT') }
   if (env.OFM_CATALOG_REFRESH !== undefined) layer.catalog = { refreshMinutes: int('OFM_CATALOG_REFRESH') }
   if (env.OFM_PROBE !== undefined) layer.probe = { enabled: !(value => value === '0' || value === 'off' || value === 'false')(env.OFM_PROBE) }
@@ -372,7 +374,9 @@ export function loadConfig({ argv = [], env = {}, configPath = null, fileText, f
   cfg.configPath = resolvedPath
   // 归一后的上游 base 是对话/探测链的单一真相（flag > OFM_* env > 文件 > 默认）：
   // 同步进 src/upstream.js 的惰性读取键，否则 config.json 的 base 对 postStreamed
-  // 不生效（那是 module-load 快照的旧口径）。
+  // 不生效（那是 module-load 快照的旧口径）。key 同款：gatewayHeaders 惰性读
+  // OFM_UPSTREAM_KEY，空 = opencode 免密的 Bearer public。
   process.env.OUR_FREE_MODEL_BASE = cfg.upstream.base
+  process.env.OFM_UPSTREAM_KEY = cfg.upstream.key
   return deepFreeze(cfg)
 }

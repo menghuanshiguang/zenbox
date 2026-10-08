@@ -1,6 +1,19 @@
 // zenbox 运行配置（AGENT-BRIEF §8.1）。允许 // 行注释。
 // 优先级: CLI flag > OFM_* 环境变量 > 本文件 > 默认值。
 // 校验失败拒绝启动；段内未知键视为打字错误直接报错。
+//
+// ── 客户端接入速览（OpenAI 格式出口）──────────────────────────
+//   Base URL : http://<listen.host>:<listen.port>/v1
+//              本机默认 http://127.0.0.1:18899/v1
+//              局域网 http://<lan.host>:<lan.port>/v1（lan.enabled=true 后）
+//   API Key  : data/forward.key（listen.key 留空 = 首次启动自动生成 ofm-…，0600）
+//              例: curl http://127.0.0.1:18899/v1/models \
+//                    -H "Authorization: Bearer $(cat data/forward.key)"
+//   上游 Key : upstream.key（默认空 = opencode 免密 Bearer public；
+//              换自建/第三方兼容网关时填 sk-… 或完整 "Bearer sk-…"，env OFM_UPSTREAM_KEY 同效）
+//   订阅出口 : egress.mode="subscription" + egress.subscription.url（订阅链接）
+//              + egress.subscription.token（订阅站 apikey，渲染成 mihomo 拉取的 Authorization 头）
+// ─────────────────────────────────────────────────────────
 {
   // 本机转发监听（OpenAI 兼容入口）；key 空 = 首次启动生成 ofm- 前缀 Key 写 data/（0600）
   // fallback = 端口被占时顺延探测（#23）；false 则占用即失败
@@ -9,8 +22,8 @@
   // 局域网入口：独立 Key，与本机不通用；enabled=false 默认关闭（多设备门常关）
   "lan": { "enabled": false, "host": "0.0.0.0", "port": 18899, "key": "" },
 
-  // 上游 opencode 网关与超时
-  "upstream": { "base": "https://opencode.ai", "timeoutMs": 45000 },
+  // 上游 opencode 网关与超时；key 空 = 免密（Bearer public），有值则带 Bearer 上行
+  "upstream": { "base": "https://opencode.ai", "timeoutMs": 45000, "key": "" },
 
   // 模型清单后台刷新周期（分钟）；allow/deny 留空 = 全量（过滤接入后续里程碑）
   "catalog": { "refreshMinutes": 30, "allow": [], "deny": [] },
@@ -21,7 +34,8 @@
   // 默认思考档位: light | balanced | deep
   "effort": "balanced",
 
-  // 出口: direct 直连 | proxy 走代理中继；subscription/proxy 凭据字段为 M3 egress 预留
+  // 出口: direct 直连 | proxy 走已有代理（url+password）| subscription 托管 mihomo 拉订阅
+  // subscription.url = 订阅链接（URL 即凭据或…）；subscription.token = 订阅站 apikey（渲染成 Authorization 头）
   "egress": {
     "mode": "direct",
     "subscription": { "url": "", "token": "" },

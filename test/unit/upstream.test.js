@@ -6,12 +6,27 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  UPSTREAM_BASE, upstreamBase, CLIENT_UA,
+  UPSTREAM_BASE, upstreamBase, CLIENT_UA, gatewayHeaders,
   SESSION_RE, REQUEST_RE, mintSessionId, mintRequestId,
   sessionForConversation, requestIdFor, baseModelId,
   isResponsesModel, isMessagesModel, endpointFor, wireFor,
   declaredToolNames, truncateSession, ANTHROPIC_API_VERSION, MAX_TOOL_NAME_LEN,
 } from '../../src/upstream.js'
+
+test('upstream: gatewayHeaders 的 authorization——默认免密 public，config.upstream.key 覆盖', () => {
+  const saved = process.env.OFM_UPSTREAM_KEY
+  try {
+    delete process.env.OFM_UPSTREAM_KEY
+    assert.equal(gatewayHeaders({ session: 's', requestId: 'r', stream: true }).authorization, 'Bearer public')
+    process.env.OFM_UPSTREAM_KEY = 'sk-third-party'
+    assert.equal(gatewayHeaders({ session: 's', requestId: 'r', stream: true }).authorization, 'Bearer sk-third-party')
+    process.env.OFM_UPSTREAM_KEY = 'Bearer sk-already'
+    assert.equal(gatewayHeaders({ session: 's', requestId: 'r', stream: true }).authorization, 'Bearer sk-already')
+  } finally {
+    if (saved === undefined) delete process.env.OFM_UPSTREAM_KEY
+    else process.env.OFM_UPSTREAM_KEY = saved
+  }
+})
 
 test('upstream: base 惰性随 env 走（loadConfig 同步的单一真相）', () => {
   const saved = process.env.OUR_FREE_MODEL_BASE

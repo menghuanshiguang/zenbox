@@ -39,6 +39,9 @@ jobs:
         run: npm ci
       - name: L0 + L1 + L2 门禁
         run: npm test
+      - name: 内置 mihomo（按 pin 版本拉当前平台 + -v 冒烟）
+        shell: bash
+        run: node scripts/fetch-mihomo.mjs --smoke
       - name: start 冒烟（三平台脚本直跑，banner 出现后优雅退出）
         shell: bash
         run: |

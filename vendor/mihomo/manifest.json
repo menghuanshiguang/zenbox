@@ -1,0 +1,6 @@
+{
+  "source": "MetaCubeX/mihomo",
+  "version": "v1.19.32",
+  "license": "GPL-3.0",
+  "note": "二进制不入库。node scripts/fetch-mihomo.mjs 按此版本把当前平台的官方构建拉到 vendor/mihomo/<os>-<arch>/（CI 每平台自动执行）；升级 = 改这里的 version 后重跑。"
+}

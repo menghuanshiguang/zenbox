@@ -147,12 +147,19 @@ export function wireFor(modelId) {
 /**
  * The headers the gateway fingerprints a genuine desktop client by.
  * `Authorization: Bearer public` is the pooled免密 credential — there is no
- * per-user secret on this lane.
+ * per-user secret on this lane. `config.upstream.key` (synced into
+ * `OFM_UPSTREAM_KEY` by loadConfig) overrides it for gateways that do want
+ * one: a bare `sk-…` gets the Bearer prefix, an already-prefixed value rides
+ * through untouched.
  */
 export function gatewayHeaders({ session, requestId, stream, accept, deviceIp }) {
+  const key = String(process.env.OFM_UPSTREAM_KEY ?? '').trim()
+  const authorization = key === ''
+    ? 'Bearer public'
+    : (key.toLowerCase().startsWith('bearer ') ? key : `Bearer ${key}`)
   const headers = {
     'content-type': 'application/json',
-    'authorization': 'Bearer public',
+    'authorization': authorization,
     'user-agent': CLIENT_UA,
     'x-opencode-client': 'desktop',
     'x-opencode-session': session,

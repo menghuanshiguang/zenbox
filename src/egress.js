@@ -67,6 +67,7 @@ import path from 'node:path'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { lookup } from 'node:dns/promises'
 import { spawn } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 
 /** The loopback address the relay listens on. Never a routable one. */
 const RELAY_HOST = '127.0.0.1'
@@ -309,9 +310,10 @@ function egressLaneOf(relay) {
  * @param {{strikes?: number, bypassMs?: number, bypassMaxMs?: number}} [options.policy] 梯子参数（测试注入）
  */
 export async function startEgressRelay({ config, dataDir, log = () => {}, onDead, onFault, onLane, policy }) {
-  const cfg = { mode: 'subscription', url: '', mihomoPath: '', ...config() }
+  const cfg = { mode: 'subscription', url: '', mihomoPath: '', token: '', ...config() }
   const mode = cfg.mode === 'client' ? 'client' : 'subscription'
   const url = String(cfg.url ?? '').trim()
+  const token = String(cfg.token ?? '').trim()
   if (url === '') throw new Error('the egress outlet is enabled but empty — paste a proxy address or a subscription link')
   // Minted per start, not per process: a key that leaked from a previous relay
   // must not open this one. Lives in the handle only, and is never written down.
@@ -346,6 +348,7 @@ export async function startEgressRelay({ config, dataDir, log = () => {}, onDead
     const configPath = path.join(dir, 'mihomo.yaml')
     fs.writeFileSync(configPath, renderMihomoConfig({
       subscription: url,
+      token,
       mixedPort,
       apiPort,
       secret,
@@ -879,7 +882,7 @@ function sameSecret(given, expected) {
  * same way the relay key protects the loopback port in front of it: a listener
  * every local process can borrow is a listener that will be borrowed.
  */
-export function renderMihomoConfig({ subscription, mixedPort, apiPort, secret, auth, logFile }) {
+export function renderMihomoConfig({ subscription, token, mixedPort, apiPort, secret, auth, logFile }) {
   return [
     '# Managed by dsh-our-free-model. Edits are overwritten on the next sync.',
     `mixed-port: ${mixedPort}`,
@@ -902,6 +905,13 @@ export function renderMihomoConfig({ subscription, mixedPort, apiPort, secret, a
     '  egress:',
     '    type: http',
     `    url: ${JSON.stringify(subscription)}`,
+    // config.egress.subscription.token：订阅站的 apikey 以标准 Authorization
+    // 头随拉取携带（值原样——要 Bearer 前缀就写进 token）。URL 内嵌凭据的老
+    // 用法（URL 即 bearer）不受影响：没 token 就没有这个块。
+    ...(String(token ?? '').trim() === '' ? [] : [
+      '    headers:',
+      `      Authorization: ${JSON.stringify(String(token).trim())}`,
+    ]),
     '    interval: 86400',
     '    path: ./egress-provider.yaml',
     '    health-check:',
@@ -928,12 +938,27 @@ export function renderMihomoConfig({ subscription, mixedPort, apiPort, secret, a
 }
 
 /**
- * Locate a mihomo-family binary: the explicit setting first, then PATH, then
- * the install directories of the clients that are actually common (Clash
- * Verge ships `verge-mihomo.exe` beside its GUI). No downloads here — a missing
- * binary is an error the settings page can explain, not a silent fetch.
+ * The vendored binary directory for this host: `vendor/mihomo/<os>-<arch>/`,
+ * populated by the install-time `scripts/fetch-mihomo.mjs` (pinned version).
  */
-export function findMihomoBinary(explicit) {
+export function defaultVendorDirs() {
+  const osName = { linux: 'linux', darwin: 'darwin', win32: 'windows' }[process.platform] ?? process.platform
+  const cpu = { x64: 'amd64', arm64: 'arm64', ia32: '386' }[process.arch] ?? process.arch
+  return [path.join(fileURLToPath(new URL('../vendor/mihomo/', import.meta.url)), `${osName}-${cpu}`)]
+}
+
+/**
+ * Locate a mihomo-family binary: the explicit setting first, then zenbox's own
+ * vendored copy (`vendor/mihomo/<os>-<arch>/`, pinned by fetch-mihomo), then
+ * PATH, then the install directories of the clients that are actually common
+ * (Clash Verge ships `verge-mihomo.exe` beside its GUI). No downloads here —
+ * the vendored copy arrives via the install-time fetch script, and a missing
+ * binary is an error that names it, not a silent fetch.
+ *
+ * @param {string} [explicit] 显式路径（设置项）；空则按内置顺序搜寻
+ * @param {{vendorDirs?: string[], dirs?: string[], roots?: string[]}} [options] 搜索面注入（测试用）
+ */
+export function findMihomoBinary(explicit, options = {}) {
   const given = String(explicit ?? '').trim()
   if (given !== '') {
     if (!fs.existsSync(given)) throw new Error(`the mihomo path "${given}" does not exist`)
@@ -943,16 +968,17 @@ export function findMihomoBinary(explicit) {
   const names = windows
     ? ['mihomo.exe', 'verge-mihomo.exe', 'verge-mihomo-alpha.exe', 'clash-meta.exe', 'clash.exe']
     : ['mihomo', 'clash-meta', 'clash']
-  const dirs = []
-  for (const entry of (process.env.PATH ?? '').split(path.delimiter)) {
-    if (entry.trim() !== '') dirs.push(entry)
-  }
-  const roots = windows
+  const vendorDirs = options.vendorDirs ?? defaultVendorDirs()
+  const dirs = options.dirs
+    ?? (process.env.PATH ?? '').split(path.delimiter).filter(entry => entry.trim() !== '')
+  const roots = options.roots ?? (windows
     ? [process.env.ProgramFiles, process.env['ProgramFiles(x86)'], path.join(process.env.LOCALAPPDATA ?? '', 'Programs')]
         .filter(Boolean)
         .flatMap(root => [path.join(root, 'Clash Verge'), path.join(root, 'clash-verge'), path.join(root, 'mihomo')])
-    : ['/usr/local/bin', '/usr/bin', '/opt/homebrew/bin', path.join(process.env.HOME ?? '', '.local/bin')]
-  for (const dir of [...dirs, ...roots]) {
+    : ['/usr/local/bin', '/usr/bin', '/opt/homebrew/bin', path.join(process.env.HOME ?? '', '.local/bin')])
+  // Vendored first: its version is the one the config renderer and the smoke
+  // tests were run against, so it outranks whatever happens to be on PATH.
+  for (const dir of [...vendorDirs, ...dirs, ...roots]) {
     for (const name of names) {
       const candidate = path.join(dir, name)
       try {
@@ -960,7 +986,7 @@ export function findMihomoBinary(explicit) {
       } catch { /* not there; next */ }
     }
   }
-  throw new Error('no mihomo binary found — set its path in the egress settings (Clash Verge installs one, or get it from MetaCubeX/mihomo)')
+  throw new Error('no mihomo binary found — run: node scripts/fetch-mihomo.mjs (or set the egress path in config, or install Clash Verge)')
 }
 
 /** Hostname of a URL, for display: the path of a subscription link is its credential. */

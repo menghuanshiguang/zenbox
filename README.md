@@ -55,6 +55,19 @@ curl http://127.0.0.1:18899/v1/chat/completions \
 
 任何 OpenAI 兼容客户端（OpenAI SDK、ollama、各类 chat UI）把 base URL 指到 `http://127.0.0.1:18899/v1`、Key 从 `data/forward.key` 取即可。
 
+## 内置 mihomo（跨平台出口）
+
+`egress.mode = "subscription"`（Clash 订阅出口）需要 mihomo 二进制。zenbox 在 `vendor/mihomo/manifest.json` 内置了 pin 版本（当前 v1.19.32），一条命令把当前平台的官方构建拉到 `vendor/mihomo/<os>-<arch>/`：
+
+```bash
+node scripts/fetch-mihomo.mjs --smoke                # 下载 + mihomo -v 冒烟
+node scripts/fetch-mihomo.mjs --platform linux-arm64 # 为其他平台预取
+```
+
+- 覆盖 linux / darwin / windows × amd64 / arm64 / 386；CI 每次推送在三平台自动执行，Linux 服务器 clone 后跑一次即可用订阅出口。
+- 二进制不入库（`.gitignore` 忽略 `vendor/mihomo/*/`，manifest 入库 pin 版本）；运行时 `findMihomoBinary` 优先认领内置副本（其次 PATH、Clash Verge 等安装目录），都没到时报错会点名这个脚本。
+- 升级 mihomo：改 manifest 的 `version` 后重跑。
+
 ## 终端 banner（§8.4）
 
 ```
@@ -86,15 +99,19 @@ curl http://127.0.0.1:18899/v1/chat/completions \
 
 ## 配置
 
-`config.json` 全键样张见仓库根（每键带 `//` 注释）。常用的几个：
+`config.json` 全键样张见仓库根（每键带 `//` 注释；**文件顶部有「客户端接入速览」——OpenAI 格式 Base URL、Key、上游 Key、订阅凭据一屏看全**）。常用的几个：
 
 ```jsonc
 {
   "listen": { "host": "127.0.0.1", "port": 18899, "fallback": true, "key": "" },  // key 空 = 首次生成写 data/0600
   "lan":    { "enabled": false, "host": "0.0.0.0", "port": 18899, "key": "" },     // 独立 Key，与本机不通用
-  "upstream": { "base": "https://opencode.ai", "timeoutMs": 45000 },
+  "upstream": { "base": "https://opencode.ai", "timeoutMs": 45000, "key": "" },    // key 空 = 免密；换兼容网关时填
   "effort": "balanced",                                                            // light | balanced | deep
-  "egress": { "mode": "direct" },                                                  // direct | subscription | proxy
+  "egress": {                                                                      // direct | proxy | subscription
+    "mode": "direct",
+    "subscription": { "url": "", "token": "" },                                    // 订阅链接 + 订阅站 apikey
+    "proxy": { "url": "", "password": "" }
+  },
   "data": "./data"
 }
 ```

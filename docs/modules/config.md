@@ -14,7 +14,7 @@
 | `parseConfigFile` | function | `parseConfigFile(text) → Record<string,any>` | 注释剥离 + JSON.parse；非法 → `ConfigError('config')` |
 | `parseHostPort` | function | `parseHostPort(text, field) → {host, port}` | 解析 `host:port` 与 IPv6 `[::1]:port`；坏格式/坏端口 → `ConfigError` |
 | `validateConfig` | function | `validateConfig(raw) → ZenConfig` | 深合并默认值后逐字段校验，返回深冻结对象 |
-| `loadConfig` | function | `loadConfig({argv, env, configPath, fileText, fileMissing, cwd}) → ZenConfig` | 完整四层装载；`data` 归一为绝对路径（正斜杠）；附加 `configPath`；**副作用**：把归一后的 `upstream.base` 同步写进 `process.env.OUR_FREE_MODEL_BASE`（对话/探测链经 `upstreamBase()` 惰性读取，单一真相） |
+| `loadConfig` | function | `loadConfig({argv, env, configPath, fileText, fileMissing, cwd}) → ZenConfig` | 完整四层装载；`data` 归一为绝对路径（正斜杠）；附加 `configPath`；**副作用**：把归一后的 `upstream.base` 同步写进 `process.env.OUR_FREE_MODEL_BASE`（对话/探测链经 `upstreamBase()` 惰性读取，单一真相），并把 `upstream.key` 同步写进 `process.env.OFM_UPSTREAM_KEY`（`gatewayHeaders` 惰性读取：空 = 免密 `Bearer public`，非空 = 覆盖上行 Authorization） |
 
 （`ZenConfig` 为 JSDoc typedef，随 `loadConfig` 返回值导出给 start.js 注解用。）
 
@@ -31,7 +31,7 @@
 | --- | --- | --- | --- |
 | `listen.host/port` | `127.0.0.1:18899` | 本模块 `validateConfig` | 本机转发监听 |
 | `lan.enabled/host/port/separateKey` | `false / 0.0.0.0:18899 / false` | 同上 | 局域网入口；separateKey 恒 false（LAN 复用本机 Key） |
-| `upstream.baseUrl/timeoutMs` | `https://opencode.ai / 45000` | 同上（url 校验 http/https） | 上游网关与超时 |
+| `upstream.base/timeoutMs/key` | `https://opencode.ai / 45000 / ''` | 同上（base 校验 http/https；key 空串允许） | 上游网关、超时与 API key：key 空 = opencode 免密；非空经 `OFM_UPSTREAM_KEY` → `gatewayHeaders` 覆盖上行 `Authorization`（裸 `sk-…` 自动补 Bearer，已带 `Bearer ` 前缀原样） |
 | `catalog.refreshMinutes` | `30` | 同上（1..1440） | 清单刷新周期 |
 | `probe.enabled/intervalMinutes/concurrency` | `true / 60 / 2` | 同上（5..1440；1..8） | 探测轮配置 |
 | `effort` | `balanced` | 同上（∈ LEVELS ids） | 默认思考档位 |
@@ -39,7 +39,7 @@
 | `ip.refreshMinutes/providers` | `30 / [ipify,ipinfo,ipapi]` | 同上（1..1440；枚举校验） | 公网出口 IP 展示源 |
 | `data` | `./data` | `loadConfig` 归一绝对化 | 运行数据目录 |
 
-环境变量映射（env 层）：`OFM_LISTEN`、`OFM_LAN`（`off/0/false` 关闭）、`OFM_UPSTREAM`、`OFM_TIMEOUT`、`OFM_CATALOG_REFRESH`、`OFM_PROBE`、`OFM_PROBE_INTERVAL`、`OFM_PROBE_CONCURRENCY`、`OFM_EFFORT`、`OFM_EGRESS`、`OFM_IP_REFRESH`、`OFM_IP_PROVIDERS`（逗号分隔）、`OFM_DATA`、`OFM_CONFIG`。
+环境变量映射（env 层）：`OFM_LISTEN`、`OFM_LAN`（`off/0/false` 关闭）、`OFM_UPSTREAM`、`OFM_UPSTREAM_KEY`（上游 API key）、`OFM_TIMEOUT`、`OFM_CATALOG_REFRESH`、`OFM_PROBE`、`OFM_PROBE_INTERVAL`、`OFM_PROBE_CONCURRENCY`、`OFM_EFFORT`、`OFM_EGRESS`、`OFM_IP_REFRESH`、`OFM_IP_PROVIDERS`（逗号分隔）、`OFM_DATA`、`OFM_CONFIG`。
 flag 层：`--listen --lan --no-lan --upstream --timeout --data --effort --egress --probe --no-probe --probe-interval --probe-concurrency --ip-refresh --config --port --verbose`（`--port N`→`listen.port`、`--verbose`→`log.level=debug`）；未识别 flag 留给 CLI 层（start.js）。
 
 ## 日志错误
@@ -63,7 +63,7 @@ flag 层：`--listen --lan --no-lan --upstream --timeout --data --effort --egres
 
 | 测试 | 覆盖点 |
 | --- | --- |
-| `test/unit/config.test.js`（coverage id: `config-unit`） | stripComments 字符串保真、parseConfigFile 注释解析、DEFAULTS §8 逐字、六类 ConfigError、flag>env>file>默认 四层优先级、文件缺失回落默认、`--lan/--no-lan`、data 绝对化、深冻结、§8.1 样张缺键补齐（9 项）、逐字段/段内未知键校验红（`listen.fallback` 非布尔、`log.level`、`catalog.allow`、`probe.timeoutMs≥1000` 等 8 项）、`OFM_UPSTREAM` env、`--port`/`--verbose` flag |
+| `test/unit/config.test.js`（coverage id: `config-unit`） | stripComments 字符串保真、parseConfigFile 注释解析、DEFAULTS §8 逐字、六类 ConfigError、flag>env>file>默认 四层优先级、文件缺失回落默认、`--lan/--no-lan`、data 绝对化、深冻结、§8.1 样张缺键补齐（9 项）、逐字段/段内未知键校验红（`listen.fallback` 非布尔、`log.level`、`catalog.allow`、`probe.timeoutMs≥1000` 等 8 项）、`OFM_UPSTREAM` env、`--port`/`--verbose` flag、`upstream.key` 三态（DEFAULTS 空串、env `OFM_UPSTREAM_KEY` 覆盖、非串被拒） |
 | `test/meta/gates.test.js`（coverage id: `doc-sync`） | 本文档与 src/config.js 双向齐备、十节结构 |
 
 ## 已知边界
@@ -78,3 +78,4 @@ flag 层：`--listen --lan --no-lan --upstream --timeout --data --effort --egres
 - 2026-10-07 建档并落地（M0，红线④：`test/unit/config.test.js` 先红后绿，18 项断言）。
 - 2026-10-07 M2：config.json 重写为 §8.1 全键样张（`listen.fallback`/`listen.key`/`lan.key` 替代 `separateKey`，新增 `ip`/`log` 段）；env 层加 `OFM_UPSTREAM`、flag 层加 `--port`/`--verbose`；逐字段校验补 `listen.fallback`/`log.level`/`catalog.allow`/`probe.timeoutMs` 等 8 红后转绿（28 断言）。
 - 2026-10-08 M5：`loadConfig` 增唯一副作用——归一后 `upstream.base` 同步进 `process.env.OUR_FREE_MODEL_BASE`，接通 config→对话/探测链（此前 config.json 改 base 只影响清单轮与展示，`postStreamed` 仍打 module-load 快照）。28+1 断言复跑绿。
+- 2026-10-08 用户指令「配置文件加上订阅链接和 apikey 之类的」：新增 `upstream.key`（DEFAULTS/段内键集/校验/env `OFM_UPSTREAM_KEY`/loadConfig 第二副作用）与 config.json 顶部「客户端接入速览」注释（OpenAI 格式 Base URL 推导、Key、上游 Key、订阅凭据一屏看全）；config.test 三断言红→绿（32 passed）。

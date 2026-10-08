@@ -52,6 +52,19 @@ curl http://127.0.0.1:18899/v1/chat/completions \
 
 Point any OpenAI SDK or chat UI at base URL `http://127.0.0.1:18899/v1` with the key from `data/forward.key`.
 
+## Bundled mihomo (cross-platform egress)
+
+`egress.mode = "subscription"` needs a mihomo binary. zenbox pins one in `vendor/mihomo/manifest.json` (currently v1.19.32) and fetches the official build for your platform into `vendor/mihomo/<os>-<arch>/`:
+
+```bash
+node scripts/fetch-mihomo.mjs --smoke                # download + `mihomo -v`
+node scripts/fetch-mihomo.mjs --platform linux-arm64 # pre-fetch for another platform
+```
+
+- Covers linux / darwin / windows × amd64 / arm64 / 386; CI runs this on all three platforms on every push, so a Linux box only needs one run after cloning.
+- Binaries stay out of git (`.gitignore` covers `vendor/mihomo/*/`, the manifest is committed); at runtime `findMihomoBinary` claims the vendored copy first (then PATH, then Clash Verge installs), and the not-found error names the script.
+- To upgrade mihomo: edit `version` in the manifest and re-run.
+
 ## CLI
 
 | Command | What it does |
@@ -76,7 +89,7 @@ CI runs on ubuntu/amd64, ubuntu/arm64, macOS and Windows: `npm ci`, `npm test`, 
 
 ## Upstream
 
-This repository was carved out of [`Ebony-Vinyl/dsh-our-free-model`](https://github.com/Ebony-Vinyl/dsh-our-free-model) at its `main` branch (dsh host and distribution surfaces removed) while keeping and porting the applicable unmerged PRs. Three disclaimers: ①client identity — this relay reaches upstream with a fixed pooled credential (`Bearer public`) and fingerprint headers representing your own egress; ②the free lane is served by the OpenCode Zen gateway (https://opencode.ai) directly, connected without third-party relays, and upstream may record prompts to improve its service — **do not send sensitive content**; ③region-limited models are grouped separately by probe verdicts — your egress is not allowed there, they are not removed.
+This repository was carved out of [`Ebony-Vinyl/dsh-our-free-model`](https://github.com/Ebony-Vinyl/dsh-our-free-model) at its `main` branch (dsh host and distribution surfaces removed) while keeping and porting the applicable unmerged PRs. Three disclaimers: ①client identity — this relay reaches upstream with a fixed pooled credential (`Bearer public`, overridable via `upstream.key`) and fingerprint headers representing your own egress; ②the free lane is served by the OpenCode Zen gateway (https://opencode.ai) directly, connected without third-party relays, and upstream may record prompts to improve its service — **do not send sensitive content**; ③region-limited models are grouped separately by probe verdicts — your egress is not allowed there, they are not removed.
 
 ## Planned
 

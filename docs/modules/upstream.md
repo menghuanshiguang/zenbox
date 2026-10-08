@@ -23,7 +23,7 @@
 | `isMessagesModel` | function | `isMessagesModel(modelId) → boolean` | `MESSAGES_MODELS`（`union-alpha`）命中即 true。 |
 | `endpointFor` | function | `endpointFor(modelId) → '/zen/v1/responses' \| '/zen/v1/messages' \| '/zen/v1/chat/completions'` | 模型到网关端点的唯一路由表。 |
 | `wireFor` | function | `wireFor(modelId) → 'responses' \| 'messages' \| 'chat'` | 端点的线形名，驱动请求编码与响应解析。 |
-| `gatewayHeaders` | function | `gatewayHeaders({ session, requestId, stream, accept, deviceIp }) → object` | 网关指纹头：`content-type`、`authorization: Bearer public`（池化免密凭据，无每用户密钥）、`user-agent: CLIENT_UA`、`x-opencode-client: desktop`、`x-opencode-session/request/project: global`、`accept`（流式 `text/event-stream`，否则 `*/*`，可显式覆盖）。#41：`deviceIp` 为非空字符串时附 `x-forwarded-for`，本地流量不带该头、线上形状不变。 |
+| `gatewayHeaders` | function | `gatewayHeaders({ session, requestId, stream, accept, deviceIp }) → object` | 网关指纹头：`content-type`、`authorization`（**默认池化免密 `Bearer public`**；`config.upstream.key` 经 loadConfig 同步进 `OFM_UPSTREAM_KEY` 后惰性覆盖——裸 `sk-…` 补 `Bearer ` 前缀，已带前缀原样、大小写不敏感）、`user-agent: CLIENT_UA`、`x-opencode-client: desktop`、`x-opencode-session/request/project: global`、`accept`（流式 `text/event-stream`，否则 `*/*`，可显式覆盖）。#41：`deviceIp` 为非空字符串时附 `x-forwarded-for`，本地流量不带该头、线上形状不变。 |
 | `applyFingerprint` | function | `applyFingerprint(body, style) → Map<string,string>` | 就地满足指纹门：`style` 为 `true`（Responses 平铺）/ `false`（Chat 包裹）/ `'claude'`（Messages）；四件套大小写归一并去重（上游拒 `Bash`+`bash` 重复），缺槽先用 `QUARTET_DONORS`（`bash`←`pwsh`）提升真实工具再补自禁用 decoy，`tool_choice` 仅在缺失时补（平铺→`'auto'`；调用方无工具→`'none'`/`{type:'none'}`）。返回 发送名→调用方名 的改名映射。 |
 | `restoreToolName` | function | `restoreToolName(name, map) → string` | 用改名映射把发送名还原为调用方拼写（映射为空或未命中则原样返回）。 |
 | `declaredToolNames` | function | `declaredToolNames(body) → Set<string>` | 收集 `body.tools` 中已声明的工具名（两种拼写通吃）。仓内暂无调用方（`src/forward.js` 自建 declared 集合）。 |
@@ -95,3 +95,4 @@
 - 2026-10-07 M2 移植 #41：`gatewayHeaders` 增 `deviceIp`→`x-forwarded-for`；forward-test 四断言 + recovery-test 端到端一断言红→绿。
 - 2026-10-08 M5 拆 base 双口径：新增 `upstreamBase()` 惰性读 env（`loadConfig` 把 `config.upstream.base` 归一同步进 `OUR_FREE_MODEL_BASE`），`http.js` 两处改调用；`UPSTREAM_BASE` 常量保留但降级为探针素材专用。根因：旧口径 import 时快照导致 config.json 的 `upstream.base` 对对话/探测链不生效。
 - 2026-10-08 M5 §7.2 导出审计：本模块 22 个导出符号中 15 个此前无测试引用（gap）+2 个仅注释提及——建 `test/unit/upstream.test.js`（8 例，coverage-map id `upstream-unit`）一次性补齐，`baseModelId` mention 转真断言。
+- 2026-10-08 用户指令「配置文件加上 apikey 之类的」：`gatewayHeaders` 的 authorization 改为三态——`OFM_UPSTREAM_KEY`（由 loadConfig 从 `config.upstream.key` 同步）空 = `Bearer public`、裸值补 `Bearer ` 前缀、已带前缀（大小写不敏感）原样；upstream.test +3 断言（9 例）红→绿。
