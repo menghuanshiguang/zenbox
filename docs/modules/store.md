@@ -25,11 +25,12 @@
 | `recordTurn` | function | `recordTurn(stats, record)` | 逻辑轮账：`logicalTurns`（诚实完成）与 `estimatedTurns`（估算）分别累计，毫秒耗时归入天桶 `decodeMs` 口径 |
 | `migrateStats` | function | `migrateStats(value) → value` | v<2：清掉旧速度总量（口径不可比）；v<3：重建 `failedRequests`、`logical+estimated` 轮字段；返回原对象/或初值，幂等 |
 | `pruneDays` | function | `pruneDays(state, keepDays=120)` | `days` 只留最近 `keepDays` 桶（保序截断），终身桶不动 |
+| `buildStats` | function | `buildStats(stats, catalog)` | 把 stats 状态汇总为可渲染报告：天序系列、模型行（名字映射、终身桶优先、`tps`/`avgTtftMs` 派生——decode 窗口 < `MIN_DECODE_MS` 给 `null` 不给 0）、逻辑轮账（logical 缺失时回退行累计）、grand 总账；requests/failures 的 estimated 标记如实透出 |
 
 ## 依赖关系
 
 - **import 进来**: `node:fs`（`readFileSync`/`writeFileSync`/`renameSync`/`mkdirSync`/`chmodSync`/`existsSync`）、`node:path`、`node:os`（`homedir`）；`./forward.js` 仅取 `generateKey`（Key 铸造的唯一实现，forward 自身不反向依赖 store）。
-- **被谁依赖**: `start.js`（`JsonStore, STATS_INITIAL, recordUsage, recordTurn, ensureKey, rotateKey, readKey`——stats 实例与 Key 生命周期）；`index.js`（`DATA_DIR_NAME, JsonStore, SETTINGS_INITIAL, dayKey, pruneDays, recordTurn, recordUsage, resolveDshHome, STATS_INITIAL`——四个 store 实例与统计路由）；`scripts/speed-stat-test.mjs`（全部七个导出 + 以 index.js 的 `buildStats` 为夹具）；`scripts/offline-test.mjs`（经 index.js 的 `SETTINGS_INITIAL` 冷启动断言）。
+- **被谁依赖**: `start.js`（`JsonStore, STATS_INITIAL, recordUsage, recordTurn, ensureKey, rotateKey, readKey`——stats 实例与 Key 生命周期）；`index.js`（`DATA_DIR_NAME, JsonStore, SETTINGS_INITIAL, dayKey, pruneDays, recordTurn, recordUsage, resolveDshHome, STATS_INITIAL`——四个 store 实例与统计路由）；`test/upstream/speed-stat-test.test.mjs`（全部导出含 `buildStats`——M5 起自本模块直取）；`test/upstream/offline-test.test.mjs`（经 index.js 的 `SETTINGS_INITIAL` 冷启动断言）。
 
 ## 配置键
 
@@ -70,8 +71,8 @@
 
 | 测试 | 覆盖点 |
 | --- | --- |
-| `scripts/speed-stat-test.mjs` | 覆盖 `decodeWindow`（`MIN_DECODE_MS`/`MAX_CREDIBLE_TPS` 双界）、`recordUsage`/`recordTurn` 桶累计与条件字段、`migrateStats`（v1/v2→v3 迁移幂等）、`pruneDays` 截断、`JsonStore`（损坏副本/去抖写回/flush 失败只告警一次）、`STATS_INITIAL` 形状、index.js `buildStats`；**当前跑不通**：入口 import `../index.js` 即 `Cannot find module 'src/chan-relay.js'`（见已知边界） |
-| `scripts/offline-test.mjs` | 覆盖 `SETTINGS_INITIAL` 驱动的无 key 冷启动与 managed 门、订阅链接保密（设置页不回显 `egress.url`） |
+| `test/upstream/speed-stat-test.test.mjs` | 覆盖 `decodeWindow`（`MIN_DECODE_MS`/`MAX_CREDIBLE_TPS` 双界）、`recordUsage`/`recordTurn` 桶累计与条件字段、`migrateStats`（v1/v2→v3 迁移幂等）、`pruneDays` 截断、`JsonStore`（损坏副本/去抖写回/flush 失败只告警一次）、`STATS_INITIAL` 形状、`buildStats`（名字映射/无耗时速率 `null`、无 catalog 的回退、窗内可测样本） |
+| `test/upstream/offline-test.test.mjs` | 覆盖 `SETTINGS_INITIAL` 驱动的无 key 冷启动与 managed 门、订阅链接保密（设置页不回显 `egress.url`） |
 | `test/unit/cli.test.js`（coverage id: `cli-unit`） | `ensureKey` 生成/复读/显式不落盘、`rotateKey` 换新、`readKey` 三态（file/config/missing） |
 | `test/integration/key-rotate.test.js`（coverage id: `key-rotate`） | rotate 后旧 Key 立即 401、新 Key 200（每请求重读 key 文件的接线） |
 

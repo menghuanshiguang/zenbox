@@ -20,7 +20,7 @@
  *
  * Run: node scripts/retry-safety-test.mjs
  */
-import { chatFrames, stubUpstream } from './lib/fake-kernel.mjs'
+import { chatFrames, stubUpstream } from '../../scripts/lib/fake-kernel.mjs'
 
 /** How many requests this model has been asked for: 1 on the first. */
 const attempts = new Map()
@@ -70,11 +70,11 @@ const stub = await stubUpstream({
 })
 // Set before the adapter module reads it: UPSTREAM_BASE is captured at import time.
 process.env.OUR_FREE_MODEL_BASE = stub.base
-const { FreeModelAdapter, ROUTE_MAIN, ROUTE_REGION } = await import('../src/adapter.js')
-const { CODE } = await import('../src/http.js')
+const { FreeModelAdapter, ROUTE_MAIN, ROUTE_REGION } = await import('../../src/adapter.js')
+const { CODE } = await import('../../src/http.js')
 
 /**
- * Mirrors `snapshotJsonValue` from @deepseek-ai/dsh-util-values: a value survives
+ * Mirrors upstream `snapshotJsonValue` (dsh util-values): a value survives
  * only if every leaf is a JSON primitive, a plain object or an array.
  */
 function isLosslessJson(value, seen = new Set()) {
@@ -226,7 +226,7 @@ console.log(`${abortedNeverRetried ? 'ok   ' : 'FAIL '} a cancelled turn is not 
 // where 4xx has to leave the retry vocabulary. 5xx and the capacity statuses
 // (408/425) stay SERVER: those are the gateway's own trouble and a re-send can
 // answer differently.
-const { classifyFailure } = await import('../src/http.js')
+const { classifyFailure } = await import('../../src/http.js')
 const classify = (status, message, type) => classifyFailure(status, { error: { ...(type === undefined ? {} : { type }), message } }, () => {})
 const refused = classify(400, 'messages: an assistant message with no content precedes tool calls.', 'invalid_request_error')
 const clientOk = refused.code === 'CLIENT_ERROR' && !policy.retryableCodes.includes(refused.code)
@@ -242,7 +242,7 @@ console.log(`${clientOk ? 'ok   ' : 'FAIL '} a 4xx is CLIENT_ERROR and never ret
 // OpenAI `usage` object has no required details block: reading `cached_tokens`
 // off an absent one made `inputTokens` NaN on every call from a gateway that
 // omits the optional field.
-const { mapUsage } = await import('../src/stream.js')
+const { mapUsage } = await import('../../src/stream.js')
 const bare = mapUsage({ prompt_tokens: 11, completion_tokens: 7 })
 const usageOk = isLosslessJson(bare) && bare?.inputTokens === 11 && bare?.outputTokens === 7
   && bare.totalTokens === 18 && !('cacheReadTokens' in bare)

@@ -16,8 +16,22 @@ import crypto from 'node:crypto'
 /**
  * Overridable so the selftest can point the adapter at a dead port and exercise
  * the transport-failure path without touching the real free lane's quota.
+ *
+ * 这是 import 时快照——运行链（对话/探测）一律走 {@link upstreamBase} 惰性
+ * 读取，本常量仅供 scripts/probes 素材引用（它们自己在 import 前设 env）。
  */
 export const UPSTREAM_BASE = process.env.OUR_FREE_MODEL_BASE ?? 'https://opencode.ai'
+
+/**
+ * 对话/探测链的出网 base，惰性读 env：`config.upstream.base`（flag > OFM_*
+ * env > config.json > 默认）由 loadConfig 归一后同步进 `OUR_FREE_MODEL_BASE`，
+ * 单一真相、任何时刻读到的都是当前配置——module-load 快照做不到这点。
+ *
+ * @returns {string}
+ */
+export function upstreamBase() {
+  return process.env.OUR_FREE_MODEL_BASE ?? 'https://opencode.ai'
+}
 
 /** A version >= 1.17 is required by the gateway's User-Agent check. */
 export const CLIENT_UA = 'opencode/1.18.31'

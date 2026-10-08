@@ -8,7 +8,7 @@
  * Run: node scripts/trust-test.mjs
  */
 import assert from 'node:assert/strict'
-import { rejectionFor, structuralRejection, connectionAdmissionView } from '../src/trust.js'
+import { rejectionFor, structuralRejection, connectionAdmissionView } from '../../src/trust.js'
 
 let failures = 0
 const check = (name, fn) => {

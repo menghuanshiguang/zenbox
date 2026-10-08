@@ -14,12 +14,20 @@
     "banner-unit": "test/unit/banner.test.js",
     "ipinfo-unit": "test/unit/ipinfo.test.js",
     "boot-order": "test/integration/boot-order.test.js",
-    "upstream-picker": "scripts/picker-test.mjs",
-    "upstream-recovery": "scripts/recovery-test.mjs",
-    "upstream-offline": "scripts/offline-test.mjs",
-    "upstream-forward": "scripts/forward-test.mjs",
-    "upstream-egress": "scripts/egress-test.mjs",
-    "upstream-retry-safety": "scripts/retry-safety-test.mjs",
-    "upstream-failover": "scripts/failover-test.mjs"
+    "rounds": "test/integration/rounds.test.js",
+    "upstream-picker": "test/upstream/picker-test.test.mjs",
+    "upstream-recovery": "test/upstream/recovery-test.test.mjs",
+    "upstream-offline": "test/upstream/offline-test.test.mjs",
+    "upstream-forward": "test/upstream/forward-test.test.mjs",
+    "upstream-egress": "test/upstream/egress-test.test.mjs",
+    "upstream-retry-safety": "test/upstream/retry-safety-test.test.mjs",
+    "upstream-failover": "test/upstream/failover-test.test.mjs",
+    "upstream-sniff": "test/upstream/sniff-test.test.mjs",
+    "upstream-truncation": "test/upstream/truncation-test.test.mjs",
+    "upstream-effort": "test/upstream/effort-test.test.mjs",
+    "upstream-trust": "test/upstream/trust-test.test.mjs",
+    "upstream-fingerprint": "test/upstream/fingerprint-test.test.mjs",
+    "upstream-projection": "test/upstream/projection-test.test.mjs",
+    "upstream-speed-stat": "test/upstream/speed-stat-test.test.mjs"
   }
 }

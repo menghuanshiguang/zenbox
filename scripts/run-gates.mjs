@@ -180,6 +180,11 @@ async function main() {
   if (integrationFiles.length === 0) skip('L2', 'integration', '尚无 test/integration（M1 核心链路起补）')
   for (const file of integrationFiles) runTest('L2', file)
 
+  // L2 上游套件（M5 迁入：此前散在 scripts/ 只登记不执行）
+  const upstreamFiles = walk('test/upstream', ['.test.mjs'])
+  if (upstreamFiles.length === 0) skip('L2', 'upstream 套件', 'test/upstream 为空')
+  for (const file of upstreamFiles) runTest('L2', file)
+
   gateLive()
 
   const failed = results.filter(item => !item.ok)

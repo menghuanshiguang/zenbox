@@ -20,7 +20,7 @@
 ## 依赖关系
 
 - **import 进来**: `./upstream.js`（`applyFingerprint`、`endpointFor`、`mintRequestId`、`sessionForConversation`、`wireFor`——wire/端点/指纹的唯一事实源）；`./http.js`（`CODE`、`postStreamed`——`messages`/`responses` 两 wire 的流式请求、状态抽取）；`./egress.js`（`egressFetch`——echo 源与 ping 都走出口改道）。
-- **被谁依赖**: `index.js`（`STATE`、`detectEgress`、`probeCatalog`——定期探测循环、`exposeRegionModels` 过滤、出口 IP 展示）；`scripts/sniff-test.mjs`（`probeModel`）。
+- **被谁依赖**: `index.js`（`STATE`、`detectEgress`、`probeCatalog`——定期探测循环、`exposeRegionModels` 过滤、出口 IP 展示）；`test/upstream/sniff-test.test.mjs`（`probeModel`）。
 
 ## 配置键
 
@@ -64,9 +64,9 @@
 
 | 测试 | 覆盖点 |
 | --- | --- |
-| `scripts/sniff-test.mjs` | 段组"the probe must not punish a model for the gateway's own trouble"（实测通过）：200 流被标 `Model is unavailable` → 5xx 语义仍判 `available`；503、503 `Service Unavailable`、503 html 代理页 → `unknown`；404 → `unavailable`；503 body 点名 `Model is unavailable` → `unavailable`；200 envelope 点名 `no such model` → `unavailable` |
-| `scripts/picker-test.mjs` | **已改编跑绿（M1，38 断言）**：`probeCatalog` 轮次 → `computeMembership`/`routableModelIds`/`publicModelRows` → `FreeModelAdapter.listModels/resolveModel` → `startForwardServer` 全链直连 src；覆盖 #3（verdict 移出 picker、union-alpha mid-round 缺 verdict 不抛、refused-all 保留并记日志、菜单/梯子数字、region 开关、loopback 绑定拒绝、隐藏模型 404 不落上游）；原 dsh 宿主面（settings summary/announcement ack/settings 清洗/trust 栅栏/reprobe 单飞）N/A 不移植，理由见脚本头注释 |
-| `scripts/offline-test.mjs` | **已改编跑绿（M1，15 断言）**：断网（网关端口真关）冷启动——`FALLBACK_CATALOG` 仍广告、adapter 合同七方法+`imageRequestPricing`→undefined（issue #42）、无 Key 转发端口 `/v1/models` 200、离线 turn 502 model-shaped、未知模型 404；原 settings API/托管安装闸/订阅 URL 块 N/A（§13 无 Web UI/不自更新），理由见脚本头注释 |
+| `test/upstream/sniff-test.test.mjs` | 段组"the probe must not punish a model for the gateway's own trouble"（实测通过）：200 流被标 `Model is unavailable` → 5xx 语义仍判 `available`；503、503 `Service Unavailable`、503 html 代理页 → `unknown`；404 → `unavailable`；503 body 点名 `Model is unavailable` → `unavailable`；200 envelope 点名 `no such model` → `unavailable` |
+| `test/upstream/picker-test.test.mjs` | **已改编跑绿（M1，38 断言）**：`probeCatalog` 轮次 → `computeMembership`/`routableModelIds`/`publicModelRows` → `FreeModelAdapter.listModels/resolveModel` → `startForwardServer` 全链直连 src；覆盖 #3（verdict 移出 picker、union-alpha mid-round 缺 verdict 不抛、refused-all 保留并记日志、菜单/梯子数字、region 开关、loopback 绑定拒绝、隐藏模型 404 不落上游）；原 dsh 宿主面（settings summary/announcement ack/settings 清洗/trust 栅栏/reprobe 单飞）N/A 不移植，理由见脚本头注释 |
+| `test/upstream/offline-test.test.mjs` | **已改编跑绿（M1，15 断言）**：断网（网关端口真关）冷启动——`FALLBACK_CATALOG` 仍广告、adapter 合同七方法+`imageRequestPricing`→undefined（issue #42）、无 Key 转发端口 `/v1/models` 200、离线 turn 502 model-shaped、未知模型 404；原 settings API/托管安装闸/订阅 URL 块 N/A（§13 无 Web UI/不自更新），理由见脚本头注释 |
 
 ## 已知边界
 
@@ -79,5 +79,5 @@
 ## 变更记录
 
 - 2026-10-07 建档（M0，依据上游 fbc3b9b + AGENT-BRIEF）。
-- 2026-10-07 M1：`scripts/picker-test.mjs` 改编为 src 直连并跑绿（38 断言，coverage id `upstream-picker`）；`scripts/recovery-test.mjs` 同批改编绿（`upstream-recovery`）；`scripts/offline-test.mjs` 改编绿（15 断言，`upstream-offline`）——index.js 依赖的上游测试至此全部脱钩。
+- 2026-10-07 M1：`test/upstream/picker-test.test.mjs` 改编为 src 直连并跑绿（38 断言，coverage id `upstream-picker`）；`test/upstream/recovery-test.test.mjs` 同批改编绿（`upstream-recovery`）；`test/upstream/offline-test.test.mjs` 改编绿（15 断言，`upstream-offline`）——index.js 依赖的上游测试至此全部脱钩。
 - 待接线：`src/config.js` 的 `probe.*`/`ip.*` 键是 M0 新配置层预留，运行时仍旧链（`settings.probeIntervalMinutes`）。

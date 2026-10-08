@@ -20,7 +20,7 @@
  * Run: node scripts/projection-test.mjs
  */
 
-import { repairToolPairing, toChatMessages, toClaudeMessages, toResponseInput } from '../src/messages.js'
+import { repairToolPairing, toChatMessages, toClaudeMessages, toResponseInput } from '../../src/messages.js'
 
 let failures = 0
 const check = (name, actual, expected) => {

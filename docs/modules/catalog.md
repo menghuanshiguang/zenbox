@@ -15,14 +15,14 @@
 | `displayModelName` | function | `displayModelName(modelId) → string` | `DISPLAY_NAMES` 11 项精确映射（`mimo-v2-5`→`Xiaomi MiMo`、`mimo-v2-5-pro`→`MiMo Pro`、`mimo-v2-6`→`MiMo V2.6`、`mimo-v2-6-pro`→`MiMo V2.6 Pro`、`muse-spark`→`Xiaomi Muse Spark`、`mimo-v2-5-tts`→`MiVoices`、`nemotron-3-super`→`Nemotron 3 Super`、`ling-1t`→`OPPO Ling 1T`、`space-bunny`→`Space Bunny`、`deepseek-v3-2`→`DeepSeek V3.2`、`jev-3`→`Jeves 3`），未命中按分隔符切词 Title-Case（铁打 id 流水展示名） |
 | `buildCatalog` | function | `buildCatalog(ids) → Array<{id,name,wire,vision,reasoning,contextWindow,maxOutput,canDisableThinking,regionSensitive}>` | 过滤非串/去重/保上游序；`wire`：`isResponsesModel(id)` → `'responses'` 否则 `'chat'`（真源只在 `src/upstream.js`）；`name=displayModelName(id)`；能力与 `regionSensitive` 各自查表；四个数值字段经 `number()` 守卫（非正数回缺省）；`price` 不在此产生 |
 | `parseListing` | function | `parseListing(payload) → string[]` | `payload.data` / `payload.models` / 顶层数组 → id 字符串数组，非串剔除；空体/无 id 返回 `[]`（上游 listModels 的分流归 index.js/http.js） |
-| `FALLBACK_CATALOG` | const | 8 个固定 id 过 `buildCatalog` 生成的 `Array<entry>` | 冷启动/离线兜底清单（语义自上游 `index.js:121` 移入）：`mimo-v2.6-flash-free`、`mimo-v2.5-free`、`ling-3.0-flash-fin-free`、`nemotron-3-ultra-free`、`nemotron-3.5-lightning-free`、`space-bunny-free`、`muse-spark-1.3-contributor-free`、`muse-spark-1.2-contributor-free`；清单拉取失败时仍可广告的唯一来源，start.js 后台轮（M4）消费；`scripts/offline-test.mjs` 断言 |
+| `FALLBACK_CATALOG` | const | 8 个固定 id 过 `buildCatalog` 生成的 `Array<entry>` | 冷启动/离线兜底清单（语义自上游 `index.js:121` 移入）：`mimo-v2.6-flash-free`、`mimo-v2.5-free`、`ling-3.0-flash-fin-free`、`nemotron-3-ultra-free`、`nemotron-3.5-lightning-free`、`space-bunny-free`、`muse-spark-1.3-contributor-free`、`muse-spark-1.2-contributor-free`；清单拉取失败时仍可广告的唯一来源，start.js 后台轮（M4）消费；`test/upstream/offline-test.test.mjs` 断言 |
 
 私有件：`ALWAYS_FREE`、`REGION_SENSITIVE`、`DISPLAY_NAMES`、`number()`（`Number.isFinite(n) && n > 0` 守卫，`u ?? def`）。
 
 ## 依赖关系
 
 - **import 进来**: `./upstream.js`（`baseModelId`——去厂商前缀供正则匹配，`isResponsesModel`——`wire` 判定唯一真源）。**不 import** `./store.js`（catalog.json 的持久化在 index.js）。
-- **被谁依赖**: `index.js`（`buildCatalog, parseListing`——`/models` 清单拉取与菜单组装；**同时仍 import `buildEacCatalog/buildKiloCatalog/isEacEntry/isKiloEntry/reviveKiloCatalog`**，这些导出已随 cut 删除，index.js 因此加载失败，见已知边界）；`scripts/effort-test.mjs`、`scripts/recovery-test.mjs`、`scripts/sniff-test.mjs`、`scripts/probes/decode-window.mjs`、`scripts/probes/long-answer.mjs`、`scripts/probes/long-think-truncation.mjs`（`capabilitiesFor` 造夹具）。
+- **被谁依赖**: `index.js`（`buildCatalog, parseListing`——`/models` 清单拉取与菜单组装；**同时仍 import `buildEacCatalog/buildKiloCatalog/isEacEntry/isKiloEntry/reviveKiloCatalog`**，这些导出已随 cut 删除，index.js 因此加载失败，见已知边界）；`test/upstream/effort-test.test.mjs`、`test/upstream/recovery-test.test.mjs`、`test/upstream/sniff-test.test.mjs`、`scripts/probes/decode-window.mjs`、`scripts/probes/long-answer.mjs`、`scripts/probes/long-think-truncation.mjs`（`capabilitiesFor` 造夹具）。
 
 ## 配置键
 
@@ -56,7 +56,7 @@
 | 测试 | 覆盖点 |
 | --- | --- |
 | 暂无 | 暂无专属文件（原 `scripts/catalog-test.mjs` 已随 cut 5b84917 删除；coverage-map 无 `catalog` 映射——M1 补，见 coverage-map） |
-| 间接覆盖 | `scripts/sniff-test.mjs`/`scripts/effort-test.mjs`/`scripts/probes/*.mjs` 经 `capabilitiesFor` 使用能力目录（夹具正确性即其回归面）；`scripts/picker-test.mjs` 覆盖 `computeMembership/listModels/summary` 的成员资格消费，但**当前入口未通**（import `../index.js` 即 `src/chan-relay.js` 缺失） |
+| 间接覆盖 | `test/upstream/sniff-test.test.mjs`/`test/upstream/effort-test.test.mjs`/`scripts/probes/*.mjs` 经 `capabilitiesFor` 使用能力目录（夹具正确性即其回归面）；`test/upstream/picker-test.test.mjs` 覆盖 `computeMembership/listModels/summary` 的成员资格消费，但**当前入口未通**（import `../index.js` 即 `src/chan-relay.js` 缺失） |
 
 ## 已知边界
 
@@ -69,5 +69,5 @@
 ## 变更记录
 
 - 2026-10-07 建档（M0，依据上游 fbc3b9b + AGENT-BRIEF）。
-- 2026-10-07 M1：新增 `FALLBACK_CATALOG`（自上游 `index.js:121` 移入，冷启动离线兜底）；`scripts/offline-test.mjs` 改编为 src 直连并跑绿（15 断言，coverage id `upstream-offline`）。
+- 2026-10-07 M1：新增 `FALLBACK_CATALOG`（自上游 `index.js:121` 移入，冷启动离线兜底）；`test/upstream/offline-test.test.mjs` 改编为 src 直连并跑绿（15 断言，coverage id `upstream-offline`）。
 - M0（cut 5b84917）：按 AGENT-BRIEF §2.1 删除 EAC/Kilo 车道导出与实现（`buildEacCatalog`/`buildKiloCatalog`/`isEacEntry`/`isKiloEntry`/`reviveKiloCatalog` 及其常量/正则/内联条目），现文件 131 行、仅 opencode 免费车道；与上游 main 的有意差异，回灌时需保留。

@@ -24,7 +24,7 @@
 ## 依赖关系
 
 - **import 进来**: `node:fs`（写 mihomo.yaml、查二进制）、`node:net`（隧道 TCP、端口探测、`freePort`）、`node:tls`（https 目标与 https 代理握手，ALPN 仅 `http/1.1`）、`node:http`（中继 server、每请求 one-shot `http.Agent`、controllerJson）、`node:path`、`node:crypto`（`randomBytes` 铸 key/secret/auth、`timingSafeEqual`）、`node:dns/promises`（`lookup`——仅 `socks5`（非 h）本地解析）、`node:child_process`（`spawn` 托管 mihomo）。
-- **被谁依赖**: `src/http.js`（`egressFetch`，全部上游流量）；`src/probe.js`（`egressFetch`，echo 源）；`index.js`（`startEgressRelay, outletLabel, readOutletSelection`——`syncEgress`/`syncEgressOnce`/`scheduleOutletRestart`/`publicSettings` 的出口呈现）；`scripts/egress-test.mjs`。
+- **被谁依赖**: `src/http.js`（`egressFetch`，全部上游流量）；`src/probe.js`（`egressFetch`，echo 源）；`index.js`（`startEgressRelay, outletLabel, readOutletSelection`——`syncEgress`/`syncEgressOnce`/`scheduleOutletRestart`/`publicSettings` 的出口呈现）；`test/upstream/egress-test.test.mjs`。
 
 ## 配置键
 
@@ -70,9 +70,9 @@
 
 | 测试 | 覆盖点 |
 | --- | --- |
-| `scripts/egress-test.mjs` | 实测 `PASS: egress 59/59 checks`（全回环双替身，不触网）：假 socks5（带/不带认证）与假 HTTP CONNECT 拨号、echo 目标（429 透传、`/stream` 分片节奏）、`egressFetch` 改道与直通、错误 key 三连拒 403、`file:///` 拒绝、方法/体/头（`x-keep`）逐字转发、`socks5h` 域名块（atyp 3）、CONNECT PUT 载荷、`renderMihomoConfig` 渲染、`findMihomoBinary`、`outletLabel`、`readOutletSelection`；**第13节 outlet rotation（#75，9 断言）**：null/无 controller 两态、假 controller 三路由（healthcheck 204 函数路由、组、provider 表）断言首个调用必是强制全测、旋转结果五元组、PUT body 换到 JP4、唯一被拒节点→null 零 PUT、已是最优→`switched:false` 零 PUT。托管 mihomo 真拉起不在离线门禁内（文件头注明属安装期 smoke） |
-| `scripts/retry-safety-test.mjs` | 实测 `retry-safety: all 8 failure shapes…`（8 形态分类/重试/持久日志）；**#75 quota hook**：`onQuotaHit` 只收 `quota-model-free` 一击（传输失败与地区拒绝不许触发换出口钩子） |
-| `scripts/failover-test.mjs` | 实测 `PASS: failover 41/41 checks`（#82 主测试，假 CONNECT 出口四态 ok/cut/stall/refuse + 假 gateway）：携带流量无罚、首击+可重放体直连重放恰拨一号、AbortController 中断不计、第二击进旁路窗（首窗≤150ms、`onLane bench`、被旁路流量不增 connect）、窗口关→probing 试验失败即重开（双窗≤300ms）、恢复→200+全梯清+`lanes='bench,bench,relay'`、指数窗 `'150,300,600,1200'` 封顶、不可重放体（已发送 stall / URLSearchParams）→502+头 `sent`/`tunnel` 且零直连零罚、407 拒绝→502+头 `refused` 零罚 |
+| `test/upstream/egress-test.test.mjs` | 实测 `PASS: egress 59/59 checks`（全回环双替身，不触网）：假 socks5（带/不带认证）与假 HTTP CONNECT 拨号、echo 目标（429 透传、`/stream` 分片节奏）、`egressFetch` 改道与直通、错误 key 三连拒 403、`file:///` 拒绝、方法/体/头（`x-keep`）逐字转发、`socks5h` 域名块（atyp 3）、CONNECT PUT 载荷、`renderMihomoConfig` 渲染、`findMihomoBinary`、`outletLabel`、`readOutletSelection`；**第13节 outlet rotation（#75，9 断言）**：null/无 controller 两态、假 controller 三路由（healthcheck 204 函数路由、组、provider 表）断言首个调用必是强制全测、旋转结果五元组、PUT body 换到 JP4、唯一被拒节点→null 零 PUT、已是最优→`switched:false` 零 PUT。托管 mihomo 真拉起不在离线门禁内（文件头注明属安装期 smoke） |
+| `test/upstream/retry-safety-test.test.mjs` | 实测 `retry-safety: all 8 failure shapes…`（8 形态分类/重试/持久日志）；**#75 quota hook**：`onQuotaHit` 只收 `quota-model-free` 一击（传输失败与地区拒绝不许触发换出口钩子） |
+| `test/upstream/failover-test.test.mjs` | 实测 `PASS: failover 41/41 checks`（#82 主测试，假 CONNECT 出口四态 ok/cut/stall/refuse + 假 gateway）：携带流量无罚、首击+可重放体直连重放恰拨一号、AbortController 中断不计、第二击进旁路窗（首窗≤150ms、`onLane bench`、被旁路流量不增 connect）、窗口关→probing 试验失败即重开（双窗≤300ms）、恢复→200+全梯清+`lanes='bench,bench,relay'`、指数窗 `'150,300,600,1200'` 封顶、不可重放体（已发送 stall / URLSearchParams）→502+头 `sent`/`tunnel` 且零直连零罚、407 拒绝→502+头 `refused` 零罚 |
 
 ## 已知边界
 
@@ -88,6 +88,6 @@
 - 2026-10-07 建档（M0，依据上游 fbc3b9b + AGENT-BRIEF）。
 - M0：新配置层 `src/config.js` 以 `egress.mode: {direct, proxy}` 承接 PR #45 的 proxy 语义；与 `SETTINGS_INITIAL.egress.mode: subscription|client` 双层并存，运行时接线待入口重建。
 - 2026-10-08 M3：port-of #75 落地——`refreshOutletExit` 导出 + `controllerJson` 升级（method/body、2xx 通过、204 空体→null）；`egress-test` 第13节 9 断言红→绿（59/59），`retry-safety-test` quota hook 红→绿。
-- 2026-10-08 M3：port-of #82 落地——故障梯（`laneFault`/`laneHealthy`/`laneBenched`/`replayable`）、`egressLane()` 导出、中继 `sent` 标志与 `failOnce` 三类分账、`httpConnect` 拒绝识别、组 `interval: 60`；`scripts/failover-test.mjs` 41 断言红→绿；start.js 宿主半（`onFault`/`onLane`/`onQuotaHit` → 60s 冷却单飞轮换、config `proxy`→client 映射）。
+- 2026-10-08 M3：port-of #82 落地——故障梯（`laneFault`/`laneHealthy`/`laneBenched`/`replayable`）、`egressLane()` 导出、中继 `sent` 标志与 `failOnce` 三类分账、`httpConnect` 拒绝识别、组 `interval: 60`；`test/upstream/failover-test.test.mjs` 41 断言红→绿；start.js 宿主半（`onFault`/`onLane`/`onQuotaHit` → 60s 冷却单飞轮换、config `proxy`→client 映射）。
 - 2026-10-08 M3：port-of #84 落地——`addressBlock`/`siblingKey`/`rankOutletCandidates`/`stepOffBlamedAddress` + `refreshOutletExit({avoid,avoidBlocks,addressOf})` 升级；`egress-test` 第14节 18 断言红→绿（77/77）。
 - 2026-10-08 M3：port-of #45 落地——EGRESS_MODES 三态 `direct|proxy|subscription`；client 分支 `cfg.password` 独立字段合成拨号 URL（内联优先）；start.js 三态映射；`egress-test` 第15节 proxy 用例三断言+scheme 拒名（81/81）、config.test 三态放行（29 passed）红→绿。

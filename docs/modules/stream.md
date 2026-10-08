@@ -29,7 +29,7 @@
 ## 依赖关系
 
 - **import 进来**: `./http.js`（`classifyFailure`——流内错误帧与错误信封同分类）、`./upstream.js`（`restoreToolName`——把指纹改名的工具名还原给调用方）、`node:crypto`（`mintToolCallId` 的随机 id）。
-- **被谁依赖**: `index.js`（`windowTokens`）、`src/adapter.js`（`finishReason`/`readStream`/`windowTokens`）、`scripts/truncation-test.mjs`（`finishReason`，主覆盖 `readStream`）、`scripts/retry-safety-test.mjs`（`mapUsage`）、`scripts/forward-test.mjs`（`readStream`）、`scripts/effort-test.mjs`（`readStream`）、`scripts/speed-stat-test.mjs`（`windowTokens`）。
+- **被谁依赖**: `index.js`（`windowTokens`）、`src/adapter.js`（`finishReason`/`readStream`/`windowTokens`）、`test/upstream/truncation-test.test.mjs`（`finishReason`，主覆盖 `readStream`）、`test/upstream/retry-safety-test.test.mjs`（`mapUsage`）、`test/upstream/forward-test.test.mjs`（`readStream`）、`test/upstream/effort-test.test.mjs`（`readStream`）、`test/upstream/speed-stat-test.test.mjs`（`windowTokens`）。
 
 ## 配置键
 
@@ -61,11 +61,11 @@
 
 | 测试 | 覆盖点 |
 | --- | --- |
-| `scripts/truncation-test.mjs` | 截断的工具参数降级 `max-tokens`（帧里仍回传供装配器裁剪）、缺 id 铸造且 delta 同步、空 stop → `EMPTY_RESPONSE`、`finishReason` 三映射、三条线形的终帧判定（无终帧 → `STREAM_CUT` 不可重试、`message_stop` 是真结尾、`response.incomplete` → `max-tokens`、裸 `response.done` 是结尾非截断、`message_stop` 不覆盖其前的 `stop_reason`）、长度截断自动续写恰发两次请求。 |
-| `scripts/retry-safety-test.mjs` | `mapUsage`：无 details 块保持有限值（`inputTokens=11/total=18`，durable log 可写）、cache 命中走不相交计数（`inputTokens=8/cacheRead=12/total=25`）；流内 region/quota/abort 形态经 `readStream` 抛出的分类端到端。 |
-| `scripts/forward-test.mjs` | `readStream('chat')` 直驱：`reasoning_content` 拼写到达 harness（`sawReasoning`/`reasoningText`）、文本与工具块的 chunk 形态。 |
-| `scripts/speed-stat-test.mjs` | `windowTokens` 四形态：未流出的推理被扣掉（422−291=131）、见到推理全额（135）、无 reasoning 字段（50）、无 usage（0）。 |
-| `scripts/effort-test.mjs` | 以 `readStream` 消费 chat 帧驱动 effort/预算相关读取路径。 |
+| `test/upstream/truncation-test.test.mjs` | 截断的工具参数降级 `max-tokens`（帧里仍回传供装配器裁剪）、缺 id 铸造且 delta 同步、空 stop → `EMPTY_RESPONSE`、`finishReason` 三映射、三条线形的终帧判定（无终帧 → `STREAM_CUT` 不可重试、`message_stop` 是真结尾、`response.incomplete` → `max-tokens`、裸 `response.done` 是结尾非截断、`message_stop` 不覆盖其前的 `stop_reason`）、长度截断自动续写恰发两次请求。 |
+| `test/upstream/retry-safety-test.test.mjs` | `mapUsage`：无 details 块保持有限值（`inputTokens=11/total=18`，durable log 可写）、cache 命中走不相交计数（`inputTokens=8/cacheRead=12/total=25`）；流内 region/quota/abort 形态经 `readStream` 抛出的分类端到端。 |
+| `test/upstream/forward-test.test.mjs` | `readStream('chat')` 直驱：`reasoning_content` 拼写到达 harness（`sawReasoning`/`reasoningText`）、文本与工具块的 chunk 形态。 |
+| `test/upstream/speed-stat-test.test.mjs` | `windowTokens` 四形态：未流出的推理被扣掉（422−291=131）、见到推理全额（135）、无 reasoning 字段（50）、无 usage（0）。 |
+| `test/upstream/effort-test.test.mjs` | 以 `readStream` 消费 chat 帧驱动 effort/预算相关读取路径。 |
 
 ## 已知边界
 

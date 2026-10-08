@@ -18,7 +18,7 @@
 ## 依赖关系
 
 - **import 进来**: 无（零 import 纯函数——可被原样提取）。
-- **被谁依赖**: `index.js`（`rejectionFor`、`isLoopbackHost`、`connectionAdmissionView`——HTTP 监听器与 LAN/forward 接纳判定）；`scripts/trust-test.mjs`（全部四个导出）。
+- **被谁依赖**: `index.js`（`rejectionFor`、`isLoopbackHost`、`connectionAdmissionView`——HTTP 监听器与 LAN/forward 接纳判定）；`test/upstream/trust-test.test.mjs`（全部四个导出）。
 
 ## 配置键
 
@@ -50,11 +50,11 @@
 
 | 测试 | 覆盖点 |
 | --- | --- |
-| `scripts/trust-test.mjs` | 实测全绿（`trust-test: OK`，21 项）：结构栅栏全分支（host-not-loopback / cross-site / origin-invalid / referer-invalid / origin-mismatch / referer-mismatch / 全过放行）；桌面中继矩阵（`dsh-app://app` 带浏览器标记放行、无信标拒 `desktop-relay-markers`、带凭据/端口拒）；接纳层（`admit` 决断 → `requestRejection` 取值、裸状态值包 `{rejection}`、双存在优先 admit、抛错 → 503 `admission-error`、回调固定字段且回调抛错被吞）；迟绑定视图（thunk 每次重读） |
+| `test/upstream/trust-test.test.mjs` | 实测全绿（`trust-test: OK`，21 项）：结构栅栏全分支（host-not-loopback / cross-site / origin-invalid / referer-invalid / origin-mismatch / referer-mismatch / 全过放行）；桌面中继矩阵（`dsh-app://app` 带浏览器标记放行、无信标拒 `desktop-relay-markers`、带凭据/端口拒）；接纳层（`admit` 决断 → `requestRejection` 取值、裸状态值包 `{rejection}`、双存在优先 admit、抛错 → 503 `admission-error`、回调固定字段且回调抛错被吞）；迟绑定视图（thunk 每次重读） |
 
 ## 已知边界
 
-- **结构层是复刻不是调用**：与 `adapter/kernel.js` `isTrustedApiRequest` 的实现可独立漂移（有意选择，见 TRUST_ISSUE 注释与 issue #89）；改动其中一处必须对照另一处与 `scripts/trust-test.mjs`。
+- **结构层是复刻不是调用**：与 `adapter/kernel.js` `isTrustedApiRequest` 的实现可独立漂移（有意选择，见 TRUST_ISSUE 注释与 issue #89）；改动其中一处必须对照另一处与 `test/upstream/trust-test.test.mjs`。
 - 认证据不认身份：本模块不解析任何凭据/密钥/token；"用户是否在本机"归连接接纳服务（注入的 `admit`）。
 - 不发 CORS/PNA 响应头：`rejectionFor` 只给状态与诊断结构，头由调用方补。
 - `authorityOf` 的端口归一只覆盖 `http:`/`https:`；非 http(s) 的 Origin/Referer 视为非法（`*-invalid`）。

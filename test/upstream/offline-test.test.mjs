@@ -24,7 +24,7 @@
  * Run: node scripts/offline-test.mjs
  */
 import http from 'node:http'
-import { freePort } from './lib/fake-kernel.mjs'
+import { freePort } from '../../scripts/lib/fake-kernel.mjs'
 
 let failures = 0
 const check = (name, actual, expected) => {
@@ -41,10 +41,10 @@ await new Promise(resolve => dead.close(resolve))
 
 process.env.OUR_FREE_MODEL_BASE = deadBase
 
-const { FreeModelAdapter, ROUTE_MAIN } = await import('../src/adapter.js')
-const { FALLBACK_CATALOG } = await import('../src/catalog.js')
-const { computeMembership, routableModelIds, publicModelRows, createRunForwarded } = await import('../src/turn.js')
-const { startForwardServer, generateKey } = await import('../src/forward.js')
+const { FreeModelAdapter, ROUTE_MAIN } = await import('../../src/adapter.js')
+const { FALLBACK_CATALOG } = await import('../../src/catalog.js')
+const { computeMembership, routableModelIds, publicModelRows, createRunForwarded } = await import('../../src/turn.js')
+const { startForwardServer, generateKey } = await import('../../src/forward.js')
 
 const state = () => ({
   catalog: FALLBACK_CATALOG,

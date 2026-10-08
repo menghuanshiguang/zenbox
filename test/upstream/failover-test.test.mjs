@@ -26,7 +26,7 @@ import http from 'node:http'
 import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
-import { startEgressRelay, egressFetch, egressActive, egressLane } from '../src/egress.js'
+import { startEgressRelay, egressFetch, egressActive, egressLane } from '../../src/egress.js'
 
 let checks = 0
 let failures = 0

@@ -14,7 +14,7 @@
 | `parseConfigFile` | function | `parseConfigFile(text) → Record<string,any>` | 注释剥离 + JSON.parse；非法 → `ConfigError('config')` |
 | `parseHostPort` | function | `parseHostPort(text, field) → {host, port}` | 解析 `host:port` 与 IPv6 `[::1]:port`；坏格式/坏端口 → `ConfigError` |
 | `validateConfig` | function | `validateConfig(raw) → ZenConfig` | 深合并默认值后逐字段校验，返回深冻结对象 |
-| `loadConfig` | function | `loadConfig({argv, env, configPath, fileText, fileMissing, cwd}) → ZenConfig` | 完整四层装载；`data` 归一为绝对路径（正斜杠）；附加 `configPath` |
+| `loadConfig` | function | `loadConfig({argv, env, configPath, fileText, fileMissing, cwd}) → ZenConfig` | 完整四层装载；`data` 归一为绝对路径（正斜杠）；附加 `configPath`；**副作用**：把归一后的 `upstream.base` 同步写进 `process.env.OUR_FREE_MODEL_BASE`（对话/探测链经 `upstreamBase()` 惰性读取，单一真相） |
 
 （`ZenConfig` 为 JSDoc typedef，随 `loadConfig` 返回值导出给 start.js 注解用。）
 
@@ -77,3 +77,4 @@ flag 层：`--listen --lan --no-lan --upstream --timeout --data --effort --egres
 
 - 2026-10-07 建档并落地（M0，红线④：`test/unit/config.test.js` 先红后绿，18 项断言）。
 - 2026-10-07 M2：config.json 重写为 §8.1 全键样张（`listen.fallback`/`listen.key`/`lan.key` 替代 `separateKey`，新增 `ip`/`log` 段）；env 层加 `OFM_UPSTREAM`、flag 层加 `--port`/`--verbose`；逐字段校验补 `listen.fallback`/`log.level`/`catalog.allow`/`probe.timeoutMs` 等 8 红后转绿（28 断言）。
+- 2026-10-08 M5：`loadConfig` 增唯一副作用——归一后 `upstream.base` 同步进 `process.env.OUR_FREE_MODEL_BASE`，接通 config→对话/探测链（此前 config.json 改 base 只影响清单轮与展示，`postStreamed` 仍打 module-load 快照）。28+1 断言复跑绿。

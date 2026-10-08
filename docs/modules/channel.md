@@ -46,7 +46,7 @@
 
 | 测试 | 覆盖点 |
 | --- | --- |
-| 暂无 | 暂无专属测试文件（coverage-map 无 `channel` 映射，见 test/meta/coverage-map.json——M1 补）；行为经 `src/adapter.js` 间接覆盖于 `scripts/recovery-test.mjs`（三 wire 流解析、EOF/silent stop 续写都走此桥）、`scripts/effort-test.mjs`（adapter 直驱流）、`scripts/truncation-test.mjs`（截断流） |
+| 暂无 | 暂无专属测试文件（coverage-map 无 `channel` 映射，见 test/meta/coverage-map.json——M1 补）；行为经 `src/adapter.js` 间接覆盖于 `test/upstream/recovery-test.test.mjs`（三 wire 流解析、EOF/silent stop 续写都走此桥）、`test/upstream/effort-test.test.mjs`（adapter 直驱流）、`test/upstream/truncation-test.test.mjs`（截断流） |
 
 ## 已知边界
 

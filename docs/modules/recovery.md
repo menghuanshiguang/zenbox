@@ -23,7 +23,7 @@
 ## 依赖关系
 
 - **import 进来**: 无（零依赖纯函数）。
-- **被谁依赖**: `src/adapter.js`（`RECOVERY_DEFAULTS, addUsage, canRecover, canRecoverSilentStop, checkpointFits, continuationMessages, createBlockTracker, recoveryMessages, recoveryPolicy`——恢复调度、usage 聚合、流解析全在此接线）；`scripts/recovery-test.mjs`（同一批导出 + `dispatchStream`/`fakeProvider` 联动）。
+- **被谁依赖**: `src/adapter.js`（`RECOVERY_DEFAULTS, addUsage, canRecover, canRecoverSilentStop, checkpointFits, continuationMessages, createBlockTracker, recoveryMessages, recoveryPolicy`——恢复调度、usage 聚合、流解析全在此接线）；`test/upstream/recovery-test.test.mjs`（同一批导出 + `dispatchStream`/`fakeProvider` 联动）。
 
 ## 配置键
 
@@ -41,7 +41,7 @@
 
 ## 网络面
 
-无网络面。模块不发请求；"恢复失败不整轮重发、usage 只累加一次"的网络语义由 `src/adapter.js` 实现、`scripts/recovery-test.mjs` 验证。
+无网络面。模块不发请求；"恢复失败不整轮重发、usage 只累加一次"的网络语义由 `src/adapter.js` 实现、`test/upstream/recovery-test.test.mjs` 验证。
 
 ## 关联 PR
 
@@ -54,8 +54,8 @@
 
 | 测试 | 覆盖点 |
 | --- | --- |
-| `scripts/recovery-test.mjs` | adapter 直驱部分实测**全绿**（后段因 `../index.js` 加载失败中止）：三种 wire × 纯推理 EOF 发起恢复、resume 后仍无正文的 silent stop 续写、第二段再 EOF 不发第三次、恢复失败（429/503/网络重置/空响应/流内错误）不整轮重发、usage 只累加一次、checkpoint 超容不带 checkpoint、`enabled:false` 拒绝、时间上限（越过 30 分钟总窗）、取消、工具元数据不泄漏进恢复请求 |
-| `scripts/truncation-test.mjs` | 相邻回归面（adapter 层）：上游自封长度与代理均限的自截断、注释"截断服务真实记录仍为该会话诚实，真实语言模型对不计费"——与 `checkpointTruncated` 闸互为边界 |
+| `test/upstream/recovery-test.test.mjs` | adapter 直驱部分实测**全绿**（后段因 `../index.js` 加载失败中止）：三种 wire × 纯推理 EOF 发起恢复、resume 后仍无正文的 silent stop 续写、第二段再 EOF 不发第三次、恢复失败（429/503/网络重置/空响应/流内错误）不整轮重发、usage 只累加一次、checkpoint 超容不带 checkpoint、`enabled:false` 拒绝、时间上限（越过 30 分钟总窗）、取消、工具元数据不泄漏进恢复请求 |
+| `test/upstream/truncation-test.test.mjs` | 相邻回归面（adapter 层）：上游自封长度与代理均限的自截断、注释"截断服务真实记录仍为该会话诚实，真实语言模型对不计费"——与 `checkpointTruncated` 闸互为边界 |
 
 ## 已知边界
 

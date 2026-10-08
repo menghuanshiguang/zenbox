@@ -22,7 +22,7 @@
 ## 依赖关系
 
 - **import 进来**: `./upstream.js`（`MAX_TOOL_NAME_LEN`——工具名截断、`baseModelId`/`restoreToolName`——转手再导出）。无 node 内置依赖。
-- **被谁依赖**: `src/adapter.js`（`toChatMessages`/`toClaudeMessages`/`toResponseInput`/`toToolDefs`/`repairToolPairing`，是唯一生产调用方）、`scripts/projection-test.mjs`（`repairToolPairing`/`toChatMessages`/`toClaudeMessages`/`toResponseInput`）、`scripts/forward-test.mjs`（`toToolDefs`）。grep 全仓 `from '.../messages.js'` 仅命中上述三处。
+- **被谁依赖**: `src/adapter.js`（`toChatMessages`/`toClaudeMessages`/`toResponseInput`/`toToolDefs`/`repairToolPairing`，是唯一生产调用方）、`test/upstream/projection-test.test.mjs`（`repairToolPairing`/`toChatMessages`/`toClaudeMessages`/`toResponseInput`）、`test/upstream/forward-test.test.mjs`（`toToolDefs`）。grep 全仓 `from '.../messages.js'` 仅命中上述三处。
 
 ## 配置键
 
@@ -45,7 +45,7 @@
 | PR | 处置 | 落点/理由 |
 | --- | --- | --- |
 | #27 | 源码已含 + 独立回归 | `toToolDefs` 双拼写分支在位（上游 fbc3b9b）；独立回归 `test/integration/forward-tools.test.js`（forward-tools，M1 建）。本模块为其 `tools` 转换的源头。 |
-| #113 | 源码已含 + 独立回归 | 投影次序：`followUp` 归并（工具结果先于图像/用户内容 flush）、`toClaudeMessages` 同角色合并、混合包裹文本不打断结果序列均在位；`scripts/projection-test.mjs` 第 8 节 39 断言全绿。独立回归 `test/unit/messages-projection.test.js`（messages-projection，M1 建）。 |
+| #113 | 源码已含 + 独立回归 | 投影次序：`followUp` 归并（工具结果先于图像/用户内容 flush）、`toClaudeMessages` 同角色合并、混合包裹文本不打断结果序列均在位；`test/upstream/projection-test.test.mjs` 第 8 节 39 断言全绿。独立回归 `test/unit/messages-projection.test.js`（messages-projection，M1 建）。 |
 | #102 | 已移植（落点在 adapter） | `systemPromptUpdate:'in-history'` 由 `src/adapter.js` resolveModel 声明（`systemPromptUpdateFor`）；本模块只投影消息序列，不持该字段。测试 `test/unit/adapter.test.js`（adapter-unit）。 |
 
 （处置矩阵见 docs/pr-coverage.md；本表只列直接落进本模块的。）
@@ -54,11 +54,11 @@
 
 | 测试 | 覆盖点 |
 | --- | --- |
-| `scripts/projection-test.mjs` | 主覆盖：V3/V4 两代工具结果各恰好上行一次（`repairToolPairing` + 三投影计数）、孤儿调用/无主结果/无 call id 结果丢弃（不再 400 整会话）、无名调用按 issue #92 丢弃（三线一致）、并行调用批、`isError`→`is_error`、图像 offload 与 `image-dropped` 警告、空结果 `'(no output)'`、构造良好的回合 byte-for-byte 不被改写、混合包裹文本次序（`assistant/tool/tool/user`）、Claude 侧同文本不重复附着、并行图片结果相邻性（第 8 节，#112/#113）。 |
+| `test/upstream/projection-test.test.mjs` | 主覆盖：V3/V4 两代工具结果各恰好上行一次（`repairToolPairing` + 三投影计数）、孤儿调用/无主结果/无 call id 结果丢弃（不再 400 整会话）、无名调用按 issue #92 丢弃（三线一致）、并行调用批、`isError`→`is_error`、图像 offload 与 `image-dropped` 警告、空结果 `'(no output)'`、构造良好的回合 byte-for-byte 不被改写、混合包裹文本次序（`assistant/tool/tool/user`）、Claude 侧同文本不重复附着、并行图片结果相邻性（第 8 节，#112/#113）。 |
 | `test/unit/messages-projection.test.js` | 独立回归（messages-projection）：#113——chat/responses 两线的并行结果必须背靠背、图片跟随行全部在其后、混合包裹文本保留一次、源历史不被投影改动。 |
-| `scripts/forward-test.mjs` | `toToolDefs`：flat harness def 与 OpenAI `{function:{…}}` 包裹 def 都能读（不丢工具）、二次转换保留全部调用方工具（#26 区块）、与 `applyFingerprint` 联动（非空列表不钉 `tool_choice`）。 |
+| `test/upstream/forward-test.test.mjs` | `toToolDefs`：flat harness def 与 OpenAI `{function:{…}}` 包裹 def 都能读（不丢工具）、二次转换保留全部调用方工具（#26 区块）、与 `applyFingerprint` 联动（非空列表不钉 `tool_choice`）。 |
 
-（`scripts/picker-test.mjs` 未引用本模块：grep 证实 `src/messages.js` 的 import 方仅 `src/adapter.js`、上述两测试。）
+（`test/upstream/picker-test.test.mjs` 未引用本模块：grep 证实 `src/messages.js` 的 import 方仅 `src/adapter.js`、上述两测试。）
 
 ## 已知边界
 

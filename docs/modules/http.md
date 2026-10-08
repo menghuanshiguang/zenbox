@@ -2,7 +2,7 @@
 
 ## 职责边界
 
-免密车道唯一的真实出口层：`postStreamed`/`getJson` 经 `src/egress.js` 的 `egressFetch` 打到 `UPSTREAM_BASE`，先读 4096 字节的体窗嗅探体态（`Content-Type` 完全不信，issue #6），再把已读字节重放进 `readSse` 分帧；`classifyFailure`/`classifyStreamFailure`/`transportCause` 把网关 JSON 错误信封、HTML 错误页、传输故障统一成 harness 中立的 `CODE`/`UpstreamError`。它不做消息转换（`src/messages.js`）、不做块投影（`src/stream.js`），也不决定重试策略——`src/adapter.js` 的 `providerRetryPolicy` 读它的 `code` 做决策。
+免密车道唯一的真实出口层：`postStreamed`/`getJson` 经 `src/egress.js` 的 `egressFetch` 打到 `upstreamBase()`（惰性基址），先读 4096 字节的体窗嗅探体态（`Content-Type` 完全不信，issue #6），再把已读字节重放进 `readSse` 分帧；`classifyFailure`/`classifyStreamFailure`/`transportCause` 把网关 JSON 错误信封、HTML 错误页、传输故障统一成 harness 中立的 `CODE`/`UpstreamError`。它不做消息转换（`src/messages.js`）、不做块投影（`src/stream.js`），也不决定重试策略——`src/adapter.js` 的 `providerRetryPolicy` 读它的 `code` 做决策。
 
 ## 导出符号表
 
@@ -24,12 +24,12 @@
 
 ## 依赖关系
 
-- **import 进来**: `./upstream.js`（`CLIENT_UA`、`UPSTREAM_BASE`、`gatewayHeaders`、`truncateSession`）、`./egress.js`（`egressFetch`——实际出网通道，可能经本机出口中继）。
-- **被谁依赖**: `index.js`（`CODE`/`UpstreamError`/`getJson`，用于 `/zen/v1/models` 目录拉取）、`src/adapter.js`（`CODE`/`UpstreamError`/`postStreamed`——主对话路径）、`src/probe.js`（`CODE`/`postStreamed`——可用性探测）、`src/stream.js`（`classifyFailure`——流内错误帧）、`scripts/sniff-test.mjs`（`CODE`/`postStreamed`/`readSse`/`sniffBody`）、`scripts/retry-safety-test.mjs`（`CODE`/`classifyFailure`）、`scripts/probes/dangling-tool-call.mjs`（`postStreamed`/`UpstreamError`）。
+- **import 进来**: `./upstream.js`（`CLIENT_UA`、`upstreamBase`、`gatewayHeaders`、`truncateSession`）、`./egress.js`（`egressFetch`——实际出网通道，可能经本机出口中继）。
+- **被谁依赖**: `index.js`（`CODE`/`UpstreamError`/`getJson`，用于 `/zen/v1/models` 目录拉取）、`src/adapter.js`（`CODE`/`UpstreamError`/`postStreamed`——主对话路径）、`src/probe.js`（`CODE`/`postStreamed`——可用性探测）、`src/stream.js`（`classifyFailure`——流内错误帧）、`test/upstream/sniff-test.test.mjs`（`CODE`/`postStreamed`/`readSse`/`sniffBody`）、`test/upstream/retry-safety-test.test.mjs`（`CODE`/`classifyFailure`）、`scripts/probes/dangling-tool-call.mjs`（`postStreamed`/`UpstreamError`）。
 
 ## 配置键
 
-无（参数注入）：上游基址唯一来源是 `src/upstream.js` 的 `OUR_FREE_MODEL_BASE`/`UPSTREAM_BASE`（本模块只读常量），`timeoutMs`（`postStreamed`/`readSse` 默认 300000、`getJson` 默认 15000）、`signal`、`onData` 全部由调用方传入；本模块不读 `process.env`、不读 settings。
+无（参数注入）：上游基址唯一来源是 `src/upstream.js` 的 `upstreamBase()`（本模块每次请求现调，惰性读 `OUR_FREE_MODEL_BASE`——`loadConfig` 会把 `config.upstream.base` 同步进该键），`timeoutMs`（`postStreamed`/`readSse` 默认 300000、`getJson` 默认 15000）、`signal`、`onData` 全部由调用方传入；本模块不读 `process.env`、不读 settings。
 
 ## 日志错误
 
@@ -48,7 +48,7 @@
 
 ## 网络面
 
-- `postStreamed`：对 `${UPSTREAM_BASE}${path}` 的 **POST**（默认 `https://opencode.ai/zen/v1/*`；测试注入 `http://127.0.0.1:<port>` 替身），`redirect:'error'`，请求头含 `authorization: Bearer public`、`user-agent`（attribution 合并 `opencode/1.18.31`）、`x-opencode-session/request/client/project`；响应按体态读成 SSE 流或单 JSON。触发时机：adapter 每个回合（含重试、续写）、probe 每次探测。可关：`signal` 中止即关，`readHead`/`readSse` 的 `finally` 会 `cancel` 连接。
+- `postStreamed`：对 `${upstreamBase()}${path}` 的 **POST**（默认 `https://opencode.ai/zen/v1/*`；测试/`OFM_UPSTREAM` 注入 `http://127.0.0.1:<port>` 替身），`redirect:'error'`，请求头含 `authorization: Bearer public`、`user-agent`（attribution 合并 `opencode/1.18.31`）、`x-opencode-session/request/client/project`；响应按体态读成 SSE 流或单 JSON。触发时机：adapter 每个回合（含重试、续写）、probe 每次探测。可关：`signal` 中止即关，`readHead`/`readSse` 的 `finally` 会 `cancel` 连接。
 - `getJson`：同基址的 **GET**（`/zen/v1/models`），默认 15s 超时；触发时机：目录拉取（`index.js`）。
 - 两者都经 `src/egress.js` 的 `egressFetch` 实际出网（可走本机 `127.0.0.1` 出口中继/代理，出口策略在 egress 模块）。
 - `readHead`/`readSse`/`replayStream` 不新建连接，只消费上述响应的字节。
@@ -57,8 +57,8 @@
 
 | PR | 处置 | 落点/理由 |
 | --- | --- | --- |
-| #41 | **已移植**（2026-10-07 M2，本仓 commit 见 pr-coverage） | `postStreamed` 形参增 `deviceIp` 并透传 `gatewayHeaders`（本模块）；两态断言在 `scripts/forward-test.mjs`（upstream-forward） |
-| 无直接 PR | 不适用 | 处置矩阵见 docs/pr-coverage.md。其导出的 `postStreamed` 被 `src/adapter.js`、`src/probe.js` 调用（`index.js` 经同一批头的 `getJson` 拉目录），`readSse` 由 `postStreamed` 串联 `replayStream` 后调用并被 `scripts/sniff-test.mjs` 直接驱动；`src/egress.js` 在 `egress.js` 头注释中点名 `postStreamed`/`getJson` 这条依赖方向，并以 `egressFetch` 作为它们的出网通道。 |
+| #41 | **已移植**（2026-10-07 M2，本仓 commit 见 pr-coverage） | `postStreamed` 形参增 `deviceIp` 并透传 `gatewayHeaders`（本模块）；两态断言在 `test/upstream/forward-test.test.mjs`（upstream-forward） |
+| 无直接 PR | 不适用 | 处置矩阵见 docs/pr-coverage.md。其导出的 `postStreamed` 被 `src/adapter.js`、`src/probe.js` 调用（`index.js` 经同一批头的 `getJson` 拉目录），`readSse` 由 `postStreamed` 串联 `replayStream` 后调用并被 `test/upstream/sniff-test.test.mjs` 直接驱动；`src/egress.js` 在 `egress.js` 头注释中点名 `postStreamed`/`getJson` 这条依赖方向，并以 `egressFetch` 作为它们的出网通道。 |
 
 （处置矩阵见 docs/pr-coverage.md；本表只列直接落进本模块的。）
 
@@ -66,10 +66,10 @@
 
 | 测试 | 覆盖点 |
 | --- | --- |
-| `scripts/sniff-test.mjs` | 体态决定读法：200 + 错误 content-type 仍流式、正确 content-type 行为一致、跨块/跨多字节帧完整、超 4K 嗅探窗仍全量到达、窗边界落在多字节字符中仍解析、HTML@200 → `CLIENT_ERROR`（带一行可读消息与 status）、空体 → `EMPTY_RESPONSE`、体不开始 → `TIMEOUT`、挂起连接下的完整短答案不被误判超时、head 前/后 abort → `ABORTED`（含 pending read 的最终结算）、`sniffBody` 八种输入、探测五态（available/unknown/unavailable）。 |
-| `scripts/retry-safety-test.mjs` | `classifyFailure`：400/404/422 → `CLIENT_ERROR` 且不在 `retryableCodes`、500/408/425 → `SERVER` 可重试；`CODE.aborted`/`CONFIG_DISABLED` 不在可重试集；九种失败形态端到端产出的 failure 是 durable-log 安全的无 `undefined` 字段 JSON。 |
-| `scripts/offline-test.mjs` | 死网关（连接即拒）下插件激活不崩、回合以干净 upstream error 收尾（transport 文案含 ECONNREFUSED/failed）、转发请求回 502 且带 error 体。 |
-| `scripts/recovery-test.mjs` | 经 `postStreamed` 的三线流恢复/续写路径；`readSse` 的 300s 空闲截止（每 chunk 重置）被 `src/recovery.js` 注释引为"慢而有帧"与"真静默"的分界口径。 |
+| `test/upstream/sniff-test.test.mjs` | 体态决定读法：200 + 错误 content-type 仍流式、正确 content-type 行为一致、跨块/跨多字节帧完整、超 4K 嗅探窗仍全量到达、窗边界落在多字节字符中仍解析、HTML@200 → `CLIENT_ERROR`（带一行可读消息与 status）、空体 → `EMPTY_RESPONSE`、体不开始 → `TIMEOUT`、挂起连接下的完整短答案不被误判超时、head 前/后 abort → `ABORTED`（含 pending read 的最终结算）、`sniffBody` 八种输入、探测五态（available/unknown/unavailable）。 |
+| `test/upstream/retry-safety-test.test.mjs` | `classifyFailure`：400/404/422 → `CLIENT_ERROR` 且不在 `retryableCodes`、500/408/425 → `SERVER` 可重试；`CODE.aborted`/`CONFIG_DISABLED` 不在可重试集；九种失败形态端到端产出的 failure 是 durable-log 安全的无 `undefined` 字段 JSON。 |
+| `test/upstream/offline-test.test.mjs` | 死网关（连接即拒）下插件激活不崩、回合以干净 upstream error 收尾（transport 文案含 ECONNREFUSED/failed）、转发请求回 502 且带 error 体。 |
+| `test/upstream/recovery-test.test.mjs` | 经 `postStreamed` 的三线流恢复/续写路径；`readSse` 的 300s 空闲截止（每 chunk 重置）被 `src/recovery.js` 注释引为"慢而有帧"与"真静默"的分界口径。 |
 
 ## 已知边界
 
@@ -83,6 +83,8 @@
 - 本模块不决定重试：同一个 `code` 在 adapter 的 `retryableCodes` 里才可重试，`ABORTED` 被刻意排除（`retry-safety-test` 有专项守护）。
 
 ## 变更记录
+
+- 2026-10-08 M5：`postStreamed`/`getJson` 的基址拼接由常量 `UPSTREAM_BASE` 改为惰性 `upstreamBase()`——`loadConfig` 归一 `config.upstream.base` 后同步进 `OUR_FREE_MODEL_BASE`，config 三途径任一改 base 对对话链即刻生效（根因：module-load 快照对 config.json 不响应）。rounds/integration 与全部上游迁移套件复跑绿。
 
 - 2026-10-07 建档（M0，依据上游 fbc3b9b + AGENT-BRIEF）。
 - 2026-10-07 M2 移植 #41：`postStreamed` 增 `deviceIp` 形参透传 `gatewayHeaders`；forward-test `gatewayHeaders` 两态断言红→绿。

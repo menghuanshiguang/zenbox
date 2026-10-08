@@ -36,4 +36,4 @@ gates.test 校验测试列引用的 id 存在。
 - #103 / #105 / #68：上游自更新三连修，本仓库无自更新器（§13：自更新不做）。
 - #72：**移植**（监听先行，M4 start 时序，boot-order 测试）——本行为提醒其关键性，勿按"不移植"误读。
 
-（其余 PR 的处置在 M1–M3 移植时逐行补全，含 commit hash 与 test id。）
+19 行处置已全部落定（M1–M5 逐行完成）；落点列的 commit 可用 `git log --oneline --grep "port-of #NN"` 精确定位，测试列 id 由 gates.test 强制校验存在于 `coverage-map.json`。

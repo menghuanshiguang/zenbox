@@ -14,7 +14,7 @@
  * Run: node scripts/sniff-test.mjs
  */
 import http from 'node:http'
-import { chatFrames } from './lib/fake-kernel.mjs'
+import { chatFrames } from '../../scripts/lib/fake-kernel.mjs'
 
 let failures = 0
 const check = (name, actual, expected) => {
@@ -73,7 +73,7 @@ await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
 server.unref()
 process.env.OUR_FREE_MODEL_BASE = `http://127.0.0.1:${server.address().port}`
 
-const { CODE, postStreamed, readSse, sniffBody } = await import('../src/http.js')
+const { CODE, postStreamed, readSse, sniffBody } = await import('../../src/http.js')
 
 /** Ask the real `postStreamed` one question and collect what it handed back. */
 async function ask(model, options = {}) {
@@ -252,8 +252,8 @@ check('nothing is nothing', sniffBody('   \n '), 'empty')
 check('and prose is unrecognised', sniffBody('<html>nope'), 'unknown')
 
 // ── the probe must not punish a model for the gateway's own trouble ──────────
-const { probeModel } = await import('../src/probe.js')
-const { buildCatalog } = await import('../src/catalog.js')
+const { probeModel } = await import('../../src/probe.js')
+const { buildCatalog } = await import('../../src/catalog.js')
 const entryOf = id => buildCatalog([id])[0]
 scripts.set('mimo-v2.6-flash-free', { contentType: 'application/json', body: chatFrames('ok') })
 check('a mislabeled stream probes as available', (await probeModel(entryOf('mimo-v2.6-flash-free'))).state, 'available')

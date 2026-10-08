@@ -7,7 +7,7 @@ import fs from 'node:fs'
 import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
-import { chatFrames, until } from './lib/fake-kernel.mjs'
+import { chatFrames, until } from '../../scripts/lib/fake-kernel.mjs'
 
 let activeCase
 let forwardScenario
@@ -56,14 +56,14 @@ await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
 server.unref()
 process.env.OUR_FREE_MODEL_BASE = `http://127.0.0.1:${server.address().port}`
 
-const { FreeModelAdapter, ROUTE_MAIN } = await import('../src/adapter.js')
-const { buildCatalog } = await import('../src/catalog.js')
-const { wireFor } = await import('../src/upstream.js')
+const { FreeModelAdapter, ROUTE_MAIN } = await import('../../src/adapter.js')
+const { buildCatalog } = await import('../../src/catalog.js')
+const { wireFor } = await import('../../src/upstream.js')
 // M1 改编：Forward 口不再经 dsh 宿主 apply()，直接接线 startForwardServer +
 // createRunForwarded + JsonStore——与 start.js 同一条链，语义断言原样保留。
-const { startForwardServer, generateKey } = await import('../src/forward.js')
-const { createRunForwarded, routableModelIds, publicModelRows } = await import('../src/turn.js')
-const { JsonStore, STATS_INITIAL, recordUsage, recordTurn } = await import('../src/store.js')
+const { startForwardServer, generateKey } = await import('../../src/forward.js')
+const { createRunForwarded, routableModelIds, publicModelRows } = await import('../../src/turn.js')
+const { JsonStore, STATS_INITIAL, recordUsage, recordTurn } = await import('../../src/store.js')
 
 const MODELS = [
   'mimo-v2.6-flash-free', 'mimo-v2.5-free', 'muse-spark-1.3-contributor-free',

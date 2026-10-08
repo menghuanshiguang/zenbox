@@ -13,7 +13,7 @@ import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import http from 'node:http'
-import { startEgressRelay, egressFetch, egressActive, renderMihomoConfig, findMihomoBinary, outletLabel, readOutletSelection, refreshOutletExit, addressBlock, rankOutletCandidates, stepOffBlamedAddress } from '../src/egress.js'
+import { startEgressRelay, egressFetch, egressActive, renderMihomoConfig, findMihomoBinary, outletLabel, readOutletSelection, refreshOutletExit, addressBlock, rankOutletCandidates, stepOffBlamedAddress } from '../../src/egress.js'
 
 let checks = 0
 let failures = 0

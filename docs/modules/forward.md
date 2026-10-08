@@ -27,7 +27,7 @@
 ## 依赖关系
 
 - **import 进来**：`node:http`（两个监听器与 `http.request` 出站）、`node:net`、`node:dns`（`resolveLoopbackBind` 的主机名解析）、`node:crypto`（`randomBytes`/`timingSafeEqual`）、`node:perf_hooks`（`performance.now()` 诊断计时）、`./upstream.js` 的 `baseModelId`（`chatCompletions`/`responsesEndpoint` 各取一次 `baseModelId(String(body.model ?? ''))` 作为规范化模型名并判空）与 `FINGERPRINT_TOOLS`（`createToolWire` 的 `executable`：`!(FINGERPRINT_TOOLS.includes(name) && !declared.has(name))`，即调用方 `body.tools` 未声明的指纹四件套按 decoy 丢弃）。无其他模块依赖。
-- **被谁依赖**：`index.js`（`import { generateKey, startForwardServer, startLanRelay, toOpenAiUsage }`；`startForwardServer` 在转发同步流程调用，`forwardKey()`/`relayKey()` 首次使用时 `generateKey()` 铸造，`startLanRelay` 在中继同步流程调用，`toOpenAiUsage` 归一完成帧 usage）；`scripts/forward-test.mjs`（直接 `import` 全部导出做 56 项断言）。
+- **被谁依赖**：`index.js`（`import { generateKey, startForwardServer, startLanRelay, toOpenAiUsage }`；`startForwardServer` 在转发同步流程调用，`forwardKey()`/`relayKey()` 首次使用时 `generateKey()` 铸造，`startLanRelay` 在中继同步流程调用，`toOpenAiUsage` 归一完成帧 usage）；`test/upstream/forward-test.test.mjs`（直接 `import` 全部导出做 56 项断言）。
 
 ## 配置键
 
@@ -78,18 +78,18 @@
 | --- | --- | --- |
 | #23 | 上游 main 已含 | 端口顺延：当前代码 `bindForwardPort`（重试+顺延+临时端口兜底）+ `classifyBindError` 即该 PR 落点；已合入部分随 M0 基线 fbc3b9b 带入（AGENT-BRIEF §6 模块顺序口径） |
 | #24 | 上游 main 已含 | LAN 中继：当前代码 `startLanRelay` + `RELAY_PATHS`/`lanKey`/hop 头/508 拒环即该 PR 落点；同上随 M0 基线带入 |
-| #27 | 源码上游 main 已含；回归用例待补（M1） | tools 二次转换回归：`src/messages.js` 的 `toToolDefs` 双拼写（`tool.function ?? tool`）与 `index.js` 不再预转换均已在位，`scripts/forward-test.mjs` 已含该 PR 的 5 项断言；计划中的第一个独立回归用例落 `test/integration/forward-tools.test`（待建，`test/` 现仅 `unit/config.test.js`）。tools 转换是 `adapter.js` 出口、回归用例落转发层，故两文档互见 |
-| #40 | 已移植（M2，port-of #40） | 中继 PROXY v1 设备 IP：`sniffProxyHeader`/`parseProxyV1`/`proxyHeaderV1`/`bareAddress` 入 `src/forward.js`（`isLoopbackIp` 后），`startForwardServer`/`startLanRelay` 均改 net 前门 + `http.Server` 出站经 `emit('connection')`；中继侧 `http.Agent({keepAlive:false})` + `createConnection` 先写 PROXY 行保证每请求独立连接；6 项断言入 `scripts/forward-test.mjs` |
-| #41 | 已移植（M2，port-of #41） | 设备 IP → `x-forwarded-for`：`serveCompletion` 把 `req.socket.ofmDevice.address` 并进 `complete` 请求（`deviceIp`），`proxyHeaderV1` 认领级联 PROXY 源（`socket.ofmDevice` 优先，家族冲突回退本回环）；下游经 `turn.js → adapter → http → gatewayHeaders`；4 断言入 `scripts/forward-test.mjs`，recovery 端到端 1 断言 |
+| #27 | 源码上游 main 已含；回归用例待补（M1） | tools 二次转换回归：`src/messages.js` 的 `toToolDefs` 双拼写（`tool.function ?? tool`）与 `index.js` 不再预转换均已在位，`test/upstream/forward-test.test.mjs` 已含该 PR 的 5 项断言；计划中的第一个独立回归用例落 `test/integration/forward-tools.test`（待建，`test/` 现仅 `unit/config.test.js`）。tools 转换是 `adapter.js` 出口、回归用例落转发层，故两文档互见 |
+| #40 | 已移植（M2，port-of #40） | 中继 PROXY v1 设备 IP：`sniffProxyHeader`/`parseProxyV1`/`proxyHeaderV1`/`bareAddress` 入 `src/forward.js`（`isLoopbackIp` 后），`startForwardServer`/`startLanRelay` 均改 net 前门 + `http.Server` 出站经 `emit('connection')`；中继侧 `http.Agent({keepAlive:false})` + `createConnection` 先写 PROXY 行保证每请求独立连接；6 项断言入 `test/upstream/forward-test.test.mjs` |
+| #41 | 已移植（M2，port-of #41） | 设备 IP → `x-forwarded-for`：`serveCompletion` 把 `req.socket.ofmDevice.address` 并进 `complete` 请求（`deviceIp`），`proxyHeaderV1` 认领级联 PROXY 源（`socket.ofmDevice` 优先，家族冲突回退本回环）；下游经 `turn.js → adapter → http → gatewayHeaders`；4 断言入 `test/upstream/forward-test.test.mjs`，recovery 端到端 1 断言 |
 | #74 | 已移植（M3，port-of #74 forward 侧） | 新增私有 `callerEffort(body)` 三门（`reasoning_effort` → 嵌套 `reasoning.effort` → 模型名尾缀 `(level)`）；`chatCompletions` 与 `responsesEndpoint` 都改 `asked = callerEffort(body) ?? suffix` 后抬到 `body.reasoning_effort`（显式优先于尾缀）；`x_ofm_efforts`/`x_ofm_effort_default` 暴露落 `src/turn.js` `publicModelRows`（与 picker 菜单同用 `effortsFor`） |
-| #76 | 已移植（M2，port-of #76） | `rankLanAddresses` + `VIRTUAL_IFACE` 落 `src/forward.js`（`startForwardServer` 与 `RELAY_PATHS` 之间），4 项断言入 `scripts/forward-test.mjs`；上游 PR 的面板轮询 API（`GET /forward/lan/addresses`）不适用——zenbox 无 Web UI（§13），重读语义由 banner/status（M4）直接每次现调 |
+| #76 | 已移植（M2，port-of #76） | `rankLanAddresses` + `VIRTUAL_IFACE` 落 `src/forward.js`（`startForwardServer` 与 `RELAY_PATHS` 之间），4 项断言入 `test/upstream/forward-test.test.mjs`；上游 PR 的面板轮询 API（`GET /forward/lan/addresses`）不适用——zenbox 无 Web UI（§13），重读语义由 banner/status（M4）直接每次现调 |
 
 ## 测试对照
 
 | 测试 | 覆盖点 |
 | --- | --- |
-| `scripts/forward-test.mjs`（1325 行，81 项 `checkAsync`/`check`） | 工具线序（`tool_calls[].index` 从 0 重排、指纹 decoy 抑制、截断帧 `finish=length`、非流式 `executableCalls` 过滤）；**#74 四断言**（尾缀 `(deep)` 携带档位、显式 `reasoning_effort` 优先于尾缀、嵌套 `reasoning.effort` 抬升、`/v1/responses` 同款三门）；非 JSON 请求体→400；**8MiB 请求体→413**（`MAX_BODY_BYTES` 红线）；**#76 四断言**（虚拟网卡不领头、组内 OS 原序+IPv6/回环/APIPA 剔除、同址去重、无可用回 `[]`）；**#40 六断言**（PROXY 行归因设备、直连无 `forward:` 行、双连接不串扰、中继两请求各自来源——非池化、畸形 PROXY 拒绝、截断握手按 2s 探测超时死且 HTTP 零字节）；**#41 四断言**（PROXY 设备到达 complete、本地 completion 无 device、中继门上 PROXY 声明的设备传下去而非隧道 socket、`gatewayHeaders` 有/无 `deviceIp` 的 `x-forwarded-for` 两态）；**中继端口被占顺延**（squatter 占位 → `startLanRelay` 走 `bindForwardPort` 回落到空闲口且 200 可用）；`/v1/responses` 的 `instructions`/`max_output_tokens`/`stream`/`usage`/`incomplete`/`output_index` 分配；#66 reasoning 别名（`reasoning_content`/`reasoning_text`/`reasoning_details`/Anthropic 拼写归并）；#92 无名工具块降级；SSE 心跳（15s 注释帧、`close()` 停止、正常 finish 不动、默认间隔前静默）；`resolveLoopbackBind` 拒绝可路由解析、`classifyBindError` 各类错误码、`bindForwardPort` 等释放/保端口/顺延、`startForwardServer` 回报实际端口；LAN relay 八项（无 key 含 `/health`、空 key、换本机 key 重发、流式承载、非通用代理、503×2、508 自打转、被占顺延）；请求诊断十项（含 LAN 双跳链接、回调抛错、畸形 URL、健康/名单无诊断）；#62 合成行 `model` 来源；`toOpenAiUsage` 归一 |
-| `scripts/test-all.mjs` | 套件表含 `['forward','forward-test.mjs']`，与 effort/truncation/recovery/retry-safety/picker/tui/offline 一键执行 |
+| `test/upstream/forward-test.test.mjs`（1325 行，81 项 `checkAsync`/`check`） | 工具线序（`tool_calls[].index` 从 0 重排、指纹 decoy 抑制、截断帧 `finish=length`、非流式 `executableCalls` 过滤）；**#74 四断言**（尾缀 `(deep)` 携带档位、显式 `reasoning_effort` 优先于尾缀、嵌套 `reasoning.effort` 抬升、`/v1/responses` 同款三门）；非 JSON 请求体→400；**8MiB 请求体→413**（`MAX_BODY_BYTES` 红线）；**#76 四断言**（虚拟网卡不领头、组内 OS 原序+IPv6/回环/APIPA 剔除、同址去重、无可用回 `[]`）；**#40 六断言**（PROXY 行归因设备、直连无 `forward:` 行、双连接不串扰、中继两请求各自来源——非池化、畸形 PROXY 拒绝、截断握手按 2s 探测超时死且 HTTP 零字节）；**#41 四断言**（PROXY 设备到达 complete、本地 completion 无 device、中继门上 PROXY 声明的设备传下去而非隧道 socket、`gatewayHeaders` 有/无 `deviceIp` 的 `x-forwarded-for` 两态）；**中继端口被占顺延**（squatter 占位 → `startLanRelay` 走 `bindForwardPort` 回落到空闲口且 200 可用）；`/v1/responses` 的 `instructions`/`max_output_tokens`/`stream`/`usage`/`incomplete`/`output_index` 分配；#66 reasoning 别名（`reasoning_content`/`reasoning_text`/`reasoning_details`/Anthropic 拼写归并）；#92 无名工具块降级；SSE 心跳（15s 注释帧、`close()` 停止、正常 finish 不动、默认间隔前静默）；`resolveLoopbackBind` 拒绝可路由解析、`classifyBindError` 各类错误码、`bindForwardPort` 等释放/保端口/顺延、`startForwardServer` 回报实际端口；LAN relay 八项（无 key 含 `/health`、空 key、换本机 key 重发、流式承载、非通用代理、503×2、508 自打转、被占顺延）；请求诊断十项（含 LAN 双跳链接、回调抛错、畸形 URL、健康/名单无诊断）；#62 合成行 `model` 来源；`toOpenAiUsage` 归一 |
+| `scripts/run-gates.mjs`（npm test） | 门禁聚合器：L0 静态 + L1 单元 + L2（`test/integration` + `test/upstream` 全量）一键执行，`forward-test.test.mjs` 在 L2 每次必跑 |
 | `test/unit/config.test.js` | `src/config.js` 键校验（`listen`/`lan` 等键名与本模块注入键的对应关系由其把关；转发行为本身不经此文件） |
 
 ## 已知边界
@@ -106,7 +106,7 @@
 ## 变更记录
 
 - 2026-10-07 建档（M0，依据上游 fbc3b9b + AGENT-BRIEF）。
-- 2026-10-07 M2：port-of #76 `rankLanAddresses`/`VIRTUAL_IFACE` 落地（`scripts/forward-test.mjs` 四断言红→绿，61 项全绿）。
+- 2026-10-07 M2：port-of #76 `rankLanAddresses`/`VIRTUAL_IFACE` 落地（`test/upstream/forward-test.test.mjs` 四断言红→绿，61 项全绿）。
 - 2026-10-07 M2：port-of #40 PROXY v1 设备地址落地——`sniffProxyHeader` 前门嗅探 + 双监听改造 + 中继非池化 agent 逐请求 PROXY 行（六断言红→绿，67 项全绿）。
 - 2026-10-07 M2：port-of #41 设备 IP 贯穿——`serveCompletion` 传 `deviceIp`、`proxyHeaderV1` 认领级联源、网关 `x-forwarded-for`（四断言红→绿，71 项全绿）。
 - 2026-10-07 M2：接 §8.1 `listen.fallback`——`config().fallback===false` 时 `attempts:1`（占用即失败），缺省顺延；`bindForwardPort`/`startForwardServer` 补全 JSDoc 形状（options.address/port、config.fallback、heartbeatMs、返回型 requestedPort/fellBack/bindError/host）。

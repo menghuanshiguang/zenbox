@@ -24,7 +24,7 @@
 ## 依赖关系
 
 - **import 进来**: `./adapter.js`（`ROUTE_MAIN`/`ROUTE_REGION` 路由常量）、`./probe.js`（`STATE` 探测判定枚举）、`./forward.js`（`toOpenAiUsage` 用量换算，fold 的 usage 分支）。
-- **被谁依赖**: `scripts/forward-test.mjs`（`fromOpenAiMessages` 的 #62 source 断言）；`test/unit/turn.test.js`；`start.js` 接线与 `scripts/recovery-test.mjs` 尾段（Forward 口改造后直连本模块）。`index.js` 中保留同名实现素材直至 M1 末删除，期间两处以本模块为准。
+- **被谁依赖**: `test/upstream/forward-test.test.mjs`（`fromOpenAiMessages` 的 #62 source 断言）；`test/unit/turn.test.js`；`start.js` 接线与 `test/upstream/recovery-test.test.mjs` 尾段（Forward 口改造后直连本模块）。`index.js` 中保留同名实现素材直至 M1 末删除，期间两处以本模块为准。
 
 ## 配置键
 
@@ -50,7 +50,7 @@
 | #27 | 源码已含；独立回归另立 | `normalizeTool` 展平是 #27 回归（caller tools 抵达上游载荷）的前置换算；回归本体在 `test/integration/forward-tools.test.js` |
 | #113 | 源码已含 | 投影次序本体在 `messages.js`；本模块只负责把调用方 messages 翻成 harness 输入，不动次序 |
 | #102 | 已移植（落点 adapter.js） | `systemPromptUpdate` 声明发生在 `adapter.resolveModel`，不在本模块 |
-| #41 | **已移植**（2026-10-07 M2） | `runForwarded` 把 `request.deviceIp`（PROXY 声明设备，经 `serveCompletion` 并入）以非空字符串条件展开进 `adapter.stream` 的 `options`；本地流量不展开、出站形状不变；断言在 `scripts/forward-test.mjs`（deviceIp 到达 complete）与 `scripts/recovery-test.mjs`（端到端 `x-forwarded-for`） |
+| #41 | **已移植**（2026-10-07 M2） | `runForwarded` 把 `request.deviceIp`（PROXY 声明设备，经 `serveCompletion` 并入）以非空字符串条件展开进 `adapter.stream` 的 `options`；本地流量不展开、出站形状不变；断言在 `test/upstream/forward-test.test.mjs`（deviceIp 到达 complete）与 `test/upstream/recovery-test.test.mjs`（端到端 `x-forwarded-for`） |
 | #74 | **已移植**（2026-10-08 M3） | `publicModelRows` 增 `defaultMaxTokens` 参数与 `x_ofm_efforts`/`x_ofm_effort_default`（`effortsFor` 同源，picker 菜单与 roster 不打架）；断言在 `test/unit/turn.test.js` 两态（有梯子模型两字段/无档位模型整段省略） |
 
 ## 测试对照
@@ -58,7 +58,7 @@
 | 测试 | 覆盖点 |
 | --- | --- |
 | `test/unit/turn.test.js`（`turn-unit`） | 21 断言：httpError 状态码；#62 source 形状/Responses 归一/图片 part；normalizeTool 双形态与空名；fold 的文本/工具槽/用量/截断/error 分支；computeMembership 无判定/单拒/全拒回退/区域线；routableModelIds 暴露开关；publicModelRows 过滤与 context_window；**#74 x_ofm_efforts/effort_default 两态**（mimo 有梯子、union 无档位整段省略）；runForwarded 404 双门、参数映射（temperature/max_tokens/reasoning_effort/sessionId）、截断过滤坏参数工具 |
-| `scripts/forward-test.mjs`（上游迁移素材） | `fromOpenAiMessages` 在真实 Forward 口下的行为与 #62 `synthesized assistant rows carry a complete model source` |
+| `test/upstream/forward-test.test.mjs`（上游迁移素材） | `fromOpenAiMessages` 在真实 Forward 口下的行为与 #62 `synthesized assistant rows carry a complete model source` |
 
 ## 已知边界
 
@@ -69,6 +69,6 @@
 
 ## 变更记录
 
-- 2026-10-07 建档（M1，素材抽自上游 `index.js` fbc3b9b：`fromOpenAiMessages`/`normalizeTool`/`foldForwardOutcome`/`httpError`/`computeMembership`/`routableModelIds`/`publicModelRows`/`runForwarded` 参数化为 `createRunForwarded`）；`scripts/forward-test.mjs` 的 `fromOpenAiMessages` import 从 `index.js` 改指本模块。
+- 2026-10-07 建档（M1，素材抽自上游 `index.js` fbc3b9b：`fromOpenAiMessages`/`normalizeTool`/`foldForwardOutcome`/`httpError`/`computeMembership`/`routableModelIds`/`publicModelRows`/`runForwarded` 参数化为 `createRunForwarded`）；`test/upstream/forward-test.test.mjs` 的 `fromOpenAiMessages` import 从 `index.js` 改指本模块。
 - 2026-10-08 M3 移植 #74：`publicModelRows` 增 `defaultMaxTokens` 参数与 `x_ofm_efforts`/`x_ofm_effort_default` 两字段（import `effortsFor`/`defaultEffortFor`）；turn.test 两断言红→绿（21）。
 - 2026-10-07 M2 移植 #41：`options` 增 `deviceIp` 条件展开（`request.deviceIp` 非空才带）；forward-test 归因断言红→绿。

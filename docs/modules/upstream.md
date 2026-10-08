@@ -2,13 +2,14 @@
 
 ## 职责边界
 
-本模块集中定义与 OpenCode Zen 网关（默认基址 `https://opencode.ai`，路径 `/zen/v1/*`）对话所需的全部静态契约：会话/请求 id 的铸造与稳定映射、模型 id 到端点与线形（chat/responses/messages）的路由、网关指纹请求头、免费层要求的四件套工具指纹门。它不发出任何请求、不解析 SSE、不做消息词表转换——网络与错误语义在 `src/http.js`，流投影在 `src/stream.js`，出站消息投影在 `src/messages.js`。除 `process.env.OUR_FREE_MODEL_BASE` 外没有配置面，其余输入全部由调用方以参数注入。
+本模块集中定义与 OpenCode Zen 网关（默认基址 `https://opencode.ai`，路径 `/zen/v1/*`）对话所需的全部静态契约：会话/请求 id 的铸造与稳定映射、模型 id 到端点与线形（chat/responses/messages）的路由、网关指纹请求头、免费层要求的四件套工具指纹门。它不发出任何请求、不解析 SSE、不做消息词表转换——网络与错误语义在 `src/http.js`，流投影在 `src/stream.js`，出站消息投影在 `src/messages.js`。除上游基址（`upstreamBase()` 惰性读 `OUR_FREE_MODEL_BASE`，由 `loadConfig` 从 `config.upstream.base` 同步注入）外没有配置面，其余输入全部由调用方以参数注入。
 
 ## 导出符号表
 
 | 符号 | 类型 | 签名/形态 | 一句话语义 |
 | --- | --- | --- | --- |
-| `UPSTREAM_BASE` | const | `process.env.OUR_FREE_MODEL_BASE ?? 'https://opencode.ai'` | 上游基址，模块 import 时求值一次；`src/http.js` 拼 `${UPSTREAM_BASE}${path}` 使用，测试在 import 前注入本地 stub。 |
+| `UPSTREAM_BASE` | const | `process.env.OUR_FREE_MODEL_BASE ?? 'https://opencode.ai'` | 上游基址的 **import 时快照**，仅 `scripts/probes/*` 素材引用；运行链一律走下行函数。 |
+| `upstreamBase` | function | `upstreamBase() → string` | 惰性读 env 的上游基址：每次调用现读 `OUR_FREE_MODEL_BASE`。`config.upstream.base`（flag > `OFM_*` env > config.json > 默认）由 `loadConfig` 归一后同步写进该 env 键，成为对话/探测/清单链的单一真相——module-load 快照做不到「改 config 即生效」。 |
 | `CLIENT_UA` | const | `'opencode/1.18.31'` | 网关 User-Agent 检查要求版本 >= 1.17；该字面量属 adapter 层口径，本模块如实定义并携带（现状记录，非本模块决策）。 |
 | `FINGERPRINT_TOOLS` | const | `['bash', 'glob', 'grep', 'read']` | 免费层指纹门要求在 `body.tools` 中声明的四个小写工具名。 |
 | `SESSION_RE` | const RegExp | `/^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/` | 网关形会话 id 的形态校验。 |
@@ -35,13 +36,13 @@
 ## 依赖关系
 
 - **import 进来**: `node:crypto`（`sha256` 摘要用于稳定会话/请求 id，`randomBytes` 用于铸造随机尾部）。无其他模块依赖。
-- **被谁依赖**: `src/http.js`（`CLIENT_UA`/`UPSTREAM_BASE`/`gatewayHeaders`/`truncateSession`）、`src/stream.js`（`restoreToolName`）、`src/messages.js`（`MAX_TOOL_NAME_LEN`/`baseModelId`/`restoreToolName`）、`src/adapter.js`（`applyFingerprint`/`baseModelId`/`endpointFor`/`mintRequestId`/`sessionForConversation`/`wireFor`）、`src/probe.js`（`applyFingerprint`/`endpointFor`/`mintRequestId`/`sessionForConversation`/`wireFor`）、`src/catalog.js`（`baseModelId`/`isResponsesModel`）、`src/forward.js`（`baseModelId`/`FINGERPRINT_TOOLS`）、`index.js`（`mintRequestId`/`sessionForConversation`）、`scripts/fingerprint-test.mjs`、`scripts/forward-test.mjs`、`scripts/recovery-test.mjs`、`scripts/probes/batch-delivery.mjs`、`scripts/probes/stream-terminal-frames.mjs`、`scripts/probes/dangling-tool-call.mjs`、`scripts/probes/pairing-repair.mjs`、`scripts/probes/tool-name-charset.mjs`。
+- **被谁依赖**: `src/http.js`（`CLIENT_UA`/`upstreamBase`/`gatewayHeaders`/`truncateSession`）、`src/stream.js`（`restoreToolName`）、`src/messages.js`（`MAX_TOOL_NAME_LEN`/`baseModelId`/`restoreToolName`）、`src/adapter.js`（`applyFingerprint`/`baseModelId`/`endpointFor`/`mintRequestId`/`sessionForConversation`/`wireFor`）、`src/probe.js`（`applyFingerprint`/`endpointFor`/`mintRequestId`/`sessionForConversation`/`wireFor`）、`src/catalog.js`（`baseModelId`/`isResponsesModel`）、`src/forward.js`（`baseModelId`/`FINGERPRINT_TOOLS`）、`index.js`（`mintRequestId`/`sessionForConversation`）、`test/upstream/fingerprint-test.test.mjs`、`test/upstream/forward-test.test.mjs`、`test/upstream/recovery-test.test.mjs`、`scripts/probes/batch-delivery.mjs`、`scripts/probes/stream-terminal-frames.mjs`、`scripts/probes/dangling-tool-call.mjs`、`scripts/probes/pairing-repair.mjs`、`scripts/probes/tool-name-charset.mjs`。
 
 ## 配置键
 
 | 键 | 默认值 | 读取位置 | 语义 |
 | --- | --- | --- | --- |
-| `OUR_FREE_MODEL_BASE` | `https://opencode.ai` | `src/upstream.js`（import 时读入 `UPSTREAM_BASE`，再被 `src/http.js` 消费） | 上游基址覆盖；离线测试在 import 任何消费模块之前注入 `http://127.0.0.1:<port>` 的本地替身。 |
+| `OUR_FREE_MODEL_BASE` | `https://opencode.ai` | `src/upstream.js`（`upstreamBase()` 每次调用现读；`UPSTREAM_BASE` 常量仍 import 时读入供探针素材用） | 上游基址覆盖。`loadConfig` 会把归一后的 `config.upstream.base` 同步进本键，故 config/env/flag 三途径任一改 base，下一次 `postStreamed` 即生效；离线测试仍可在 import 前注入 `http://127.0.0.1:<port>` 替身。 |
 
 其余全部为参数注入：会话 seed、turnSeed、`style`、`body` 由调用方传入，本模块不读 settings.json、不读其他环境变量。
 
@@ -61,7 +62,7 @@
 | PR | 处置 | 落点/理由 |
 | --- | --- | --- |
 | #39 | 已合入上游 main | 探测截止相关改动；当前代码即合入后状态。UA 字面量 `opencode/1.18.31` 属 adapter 层口径，此处如实记录现状。 |
-| #41 | **已移植**（2026-10-07 M2，本仓 commit 见 pr-coverage） | `gatewayHeaders` 增 `deviceIp` 参数→条件附 `x-forwarded-for`（本模块）；链路上游见 `http.js`/`adapter.js`/`turn.js`/`forward.js`；测试 `scripts/forward-test.mjs` 四断言 + `scripts/recovery-test.mjs` 端到端一断言（upstream-forward） |
+| #41 | **已移植**（2026-10-07 M2，本仓 commit 见 pr-coverage） | `gatewayHeaders` 增 `deviceIp` 参数→条件附 `x-forwarded-for`（本模块）；链路上游见 `http.js`/`adapter.js`/`turn.js`/`forward.js`；测试 `test/upstream/forward-test.test.mjs` 四断言 + `test/upstream/recovery-test.test.mjs` 端到端一断言（upstream-forward） |
 
 （处置矩阵见 docs/pr-coverage.md；本表只列直接落进本模块的。）
 
@@ -69,13 +70,13 @@
 
 | 测试 | 覆盖点 |
 | --- | --- |
-| `scripts/fingerprint-test.mjs` | `applyFingerprint`：四件套全声明、大小写变体归一 + `restoreToolName` 回译、`pwsh`→`bash` 提升后调用可执行、`'claude'` 风格补齐与回译、调用方工具缺位时的 decoy 兜底。 |
-| `scripts/recovery-test.mjs` | `sessionForConversation` 跨续写 `x-opencode-session` 不变、`mintRequestId` 每次请求 `x-opencode-request` 独立；`wireFor` 对三条线形的选择。 |
-| `scripts/forward-test.mjs` | `applyFingerprint` 与 `toToolDefs` 联动：非空工具列表不钉 `tool_choice`、空列表钉 `'none'`、提升槽位 `map.get('bash') === 'pwsh'`。 |
-| `scripts/sniff-test.mjs` | 注入 `OUR_FREE_MODEL_BASE` 指向 `127.0.0.1` 替身，端到端穿过 `UPSTREAM_BASE` + `gatewayHeaders` 的 `postStreamed` 调用。 |
-| `scripts/offline-test.mjs` | 冷启动承诺：池化凭据只存在于 `src/upstream.js`，无网、无 key 配置下车道仍激活、回合以干净的 upstream error 收尾。 |
+| `test/upstream/fingerprint-test.test.mjs` | `applyFingerprint`：四件套全声明、大小写变体归一 + `restoreToolName` 回译、`pwsh`→`bash` 提升后调用可执行、`'claude'` 风格补齐与回译、调用方工具缺位时的 decoy 兜底。 |
+| `test/upstream/recovery-test.test.mjs` | `sessionForConversation` 跨续写 `x-opencode-session` 不变、`mintRequestId` 每次请求 `x-opencode-request` 独立；`wireFor` 对三条线形的选择。 |
+| `test/upstream/forward-test.test.mjs` | `applyFingerprint` 与 `toToolDefs` 联动：非空工具列表不钉 `tool_choice`、空列表钉 `'none'`、提升槽位 `map.get('bash') === 'pwsh'`。 |
+| `test/upstream/sniff-test.test.mjs` | 注入 `OUR_FREE_MODEL_BASE` 指向 `127.0.0.1` 替身，端到端穿过 `upstreamBase()` + `gatewayHeaders` 的 `postStreamed` 调用。 |
+| `test/upstream/offline-test.test.mjs` | 冷启动承诺：池化凭据只存在于 `src/upstream.js`，无网、无 key 配置下车道仍激活、回合以干净的 upstream error 收尾。 |
 | `scripts/tui-test.mjs` | 无 webServer 组合（dsh-tui）下模型车道端到端可用，同样经 `OUR_FREE_MODEL_BASE` 注入替身。 |
-| `scripts/probes/*`（`batch-delivery`、`stream-terminal-frames`、`dangling-tool-call`、`pairing-repair`、`tool-name-charset`） | 实网探针，直接驱动 `gatewayHeaders`/`mintSessionId`/`applyFingerprint`/`endpointFor`；非离线门禁，不进 `scripts/test-all.mjs`。 |
+| `scripts/probes/*`（`batch-delivery`、`stream-terminal-frames`、`dangling-tool-call`、`pairing-repair`、`tool-name-charset`） | 实网探针，直接驱动 `gatewayHeaders`/`mintSessionId`/`applyFingerprint`/`endpointFor`；非离线门禁，不进 `scripts/run-gates.mjs`（靠手动按需跑）。 |
 
 ## 已知边界
 
@@ -91,3 +92,4 @@
 
 - 2026-10-07 建档（M0，依据上游 fbc3b9b + AGENT-BRIEF）。
 - 2026-10-07 M2 移植 #41：`gatewayHeaders` 增 `deviceIp`→`x-forwarded-for`；forward-test 四断言 + recovery-test 端到端一断言红→绿。
+- 2026-10-08 M5 拆 base 双口径：新增 `upstreamBase()` 惰性读 env（`loadConfig` 把 `config.upstream.base` 归一同步进 `OUR_FREE_MODEL_BASE`），`http.js` 两处改调用；`UPSTREAM_BASE` 常量保留但降级为探针素材专用。根因：旧口径 import 时快照导致 config.json 的 `upstream.base` 对对话/探测链不生效。

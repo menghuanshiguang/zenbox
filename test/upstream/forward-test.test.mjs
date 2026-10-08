@@ -28,12 +28,12 @@
 import http from 'node:http'
 import net from 'node:net'
 import assert from 'node:assert/strict'
-import { startForwardServer, startLanRelay, resolveLoopbackBind, bindForwardPort, classifyBindError, startHeartbeat, SSE_HEARTBEAT_MS, rankLanAddresses } from '../src/forward.js'
-import { toToolDefs } from '../src/messages.js'
-import { readStream } from '../src/stream.js'
-import { applyFingerprint, gatewayHeaders } from '../src/upstream.js'
-import { fromOpenAiMessages } from '../src/turn.js'
-import { until } from './lib/fake-kernel.mjs'
+import { startForwardServer, startLanRelay, resolveLoopbackBind, bindForwardPort, classifyBindError, startHeartbeat, SSE_HEARTBEAT_MS, rankLanAddresses } from '../../src/forward.js'
+import { toToolDefs } from '../../src/messages.js'
+import { readStream } from '../../src/stream.js'
+import { applyFingerprint, gatewayHeaders } from '../../src/upstream.js'
+import { fromOpenAiMessages } from '../../src/turn.js'
+import { until } from '../../scripts/lib/fake-kernel.mjs'
 
 let failures = 0
 const check = (name, fn) => {

@@ -11,7 +11,7 @@
  *
  * Run: node scripts/effort-test.mjs
  */
-import { chatFrames, stubUpstream } from './lib/fake-kernel.mjs'
+import { chatFrames, stubUpstream } from '../../scripts/lib/fake-kernel.mjs'
 
 let failures = 0
 const check = (name, actual, expected) => {
@@ -27,9 +27,9 @@ const check = (name, actual, expected) => {
  */
 const stub = await stubUpstream({ listing: ['mimo-v2.6-flash-free'], answer: () => ({ body: chatFrames('done') }) })
 process.env.OUR_FREE_MODEL_BASE = stub.base
-const { MIN_BUDGET, budgetFor, budgetLadder, resolveLevel } = await import('../src/effort.js')
-const { buildCatalog } = await import('../src/catalog.js')
-const { FreeModelAdapter, ROUTE_MAIN } = await import('../src/adapter.js')
+const { MIN_BUDGET, budgetFor, budgetLadder, resolveLevel } = await import('../../src/effort.js')
+const { buildCatalog } = await import('../../src/catalog.js')
+const { FreeModelAdapter, ROUTE_MAIN } = await import('../../src/adapter.js')
 
 const catalog = id => buildCatalog([id])[0]
 const MIMO = catalog('mimo-v2.6-flash-free')
@@ -108,7 +108,7 @@ check('a rung the plugin does not declare is recorded as the default it became',
 // content at the reasoning→action boundary. The sink must strip it live, split
 // across deltas or not, without touching the real answer or the tool calls.
 {
-  const { readStream } = await import('../src/stream.js')
+  const { readStream } = await import('../../src/stream.js')
   await (async () => {
     const frames = [
       '{"choices":[{"index":0,"delta":{"content":"\\n\\n<｜"}}]}',

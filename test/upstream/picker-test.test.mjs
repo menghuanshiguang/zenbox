@@ -20,7 +20,7 @@
  *
  * Run: node scripts/picker-test.mjs
  */
-import { chatFrames, freePort, stubUpstream, until } from './lib/fake-kernel.mjs'
+import { chatFrames, freePort, stubUpstream, until } from '../../scripts/lib/fake-kernel.mjs'
 
 let failures = 0
 const check = (name, actual, expected) => {
@@ -61,12 +61,12 @@ function verdict(id) {
 const stub = await stubUpstream({ listing: LISTING, answer: verdict })
 process.env.OUR_FREE_MODEL_BASE = stub.base
 
-const { FreeModelAdapter, ROUTE_MAIN, ROUTE_REGION } = await import('../src/adapter.js')
-const { buildCatalog } = await import('../src/catalog.js')
-const { probeCatalog, STATE } = await import('../src/probe.js')
-const { computeMembership, routableModelIds, publicModelRows } = await import('../src/turn.js')
-const { startForwardServer, generateKey } = await import('../src/forward.js')
-const { budgetLadder } = await import('../src/effort.js')
+const { FreeModelAdapter, ROUTE_MAIN, ROUTE_REGION } = await import('../../src/adapter.js')
+const { buildCatalog } = await import('../../src/catalog.js')
+const { probeCatalog, STATE } = await import('../../src/probe.js')
+const { computeMembership, routableModelIds, publicModelRows } = await import('../../src/turn.js')
+const { startForwardServer, generateKey } = await import('../../src/forward.js')
+const { budgetLadder } = await import('../../src/effort.js')
 
 let CATALOG = buildCatalog(LISTING)
 const availability = { results: {}, at: 0 }
@@ -218,7 +218,7 @@ const refusedBind = await startForwardServer({
 check('a routable forward bind is refused outright', refusedBind instanceof Error, true)
 check('and says which address is acceptable', /loopback/i.test(String(refusedBind?.message ?? '')), true)
 
-const complete = (await import('../src/turn.js')).createRunForwarded({
+const complete = (await import('../../src/turn.js')).createRunForwarded({
   getCatalog: () => CATALOG,
   getState: state,
   getSettings: () => runtimeSettings,

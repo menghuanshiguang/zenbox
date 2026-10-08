@@ -96,7 +96,7 @@ check('coverage-map 无孤儿', () => {
     for (const entry of fs.readdirSync(full, { withFileTypes: true })) {
       const rel = path.posix.join(dir, entry.name)
       if (entry.isDirectory()) walk(rel)
-      else if (entry.name.endsWith('.test.js')) actual.push(rel)
+      else if (entry.name.endsWith('.test.js') || entry.name.endsWith('.test.mjs')) actual.push(rel)
     }
   }
   walk('test')

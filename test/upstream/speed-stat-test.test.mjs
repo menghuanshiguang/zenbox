@@ -17,9 +17,9 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-const { decodeWindow, migrateStats, pruneDays, recordTurn, recordUsage, JsonStore, STATS_INITIAL } = await import('../src/store.js')
-const { windowTokens } = await import('../src/stream.js')
-const { buildStats } = await import('../index.js')
+const { decodeWindow, migrateStats, pruneDays, recordTurn, recordUsage, JsonStore, STATS_INITIAL } = await import('../../src/store.js')
+const { windowTokens } = await import('../../src/stream.js')
+const { buildStats } = await import('../../src/store.js')
 
 let failures = 0
 const check = (name, actual, expected) => {

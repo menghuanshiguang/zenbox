@@ -13,7 +13,7 @@
  * Run: node scripts/fingerprint-test.mjs
  */
 
-import { applyFingerprint, FINGERPRINT_TOOLS, restoreToolName } from '../src/upstream.js'
+import { applyFingerprint, FINGERPRINT_TOOLS, restoreToolName } from '../../src/upstream.js'
 
 let failures = 0
 const check = (name, actual, expected) => {

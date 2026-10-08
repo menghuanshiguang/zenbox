@@ -13,23 +13,81 @@
  */
 import process from 'node:process'
 import { ConfigError, loadConfig } from './src/config.js'
-import { renderBanner, renderIpLine, renderLanAddressLine } from './src/banner.js'
+import { renderBanner, renderIpLine, renderLanAddressLine, renderModelsLine } from './src/banner.js'
 import os from 'node:os'
 import { fetchPublicIp } from './src/ipinfo.js'
 import { startForwardServer, startLanRelay, rankLanAddresses } from './src/forward.js'
 import { FreeModelAdapter } from './src/adapter.js'
 import { createRunForwarded, computeMembership, routableModelIds, publicModelRows } from './src/turn.js'
 import { JsonStore, STATS_INITIAL, recordUsage, recordTurn, ensureKey, rotateKey, readKey } from './src/store.js'
-import { startEgressRelay, refreshOutletExit, readOutletSelection } from './src/egress.js'
-import { FALLBACK_CATALOG } from './src/catalog.js'
+import { startEgressRelay, refreshOutletExit, readOutletSelection, egressFetch } from './src/egress.js'
+import { FALLBACK_CATALOG, parseListing, buildCatalog } from './src/catalog.js'
+import { probeCatalog, STATE } from './src/probe.js'
 
 export const VERSION = '0.1.0'
 const COMMANDS = ['start', 'status', 'models', 'probe', 'key', 'doctor']
 const NO_JSON = new Set(['start'])
-/** 运行时恒定设置：探测轮（M3）落地后 status.models 才会有分桶，这里只定通路。 */
+/** 运行时恒定设置：探测裁决走 availability，不进这张表。 */
 const RUNTIME_SETTINGS = { enabled: true, exposeRegionModels: true, defaultMaxTokens: 32768 }
-/** 尚无探测裁决——computeMembership 对无裁决条目全量放行（turn.js 注释语义）。 */
-const AVAILABILITY_EMPTY = { results: {} }
+
+/**
+ * 读盘上的最近两轮（data/catalog.json 与 data/availability.json）——
+ * 命令侧与 start 冷启动共用：重启即显上一轮的真实清单与裁决。
+ *
+ * @param {ReturnType<typeof loadConfig>} config
+ * @returns {{catalog: Array<object>, availability: {results?: Record<string, any>}}}
+ */
+function readRounds(config) {
+  const saved = new JsonStore(`${config.data}/catalog.json`, { ids: [] }).get()
+  const availability = new JsonStore(`${config.data}/availability.json`, { results: {} }).get()
+  const catalog = Array.isArray(saved.ids) && saved.ids.length > 0 ? buildCatalog(saved.ids) : FALLBACK_CATALOG
+  return { catalog, availability }
+}
+
+/**
+ * 四段分桶：一份裁决都没有时只报总数（banner「分桶待探测」态——
+ * 未探不报可用）；有裁决给全四段。unknown/throttled 保持可达，
+ * 与 computeMembership 的口径一致。
+ *
+ * @param {Array<object>} catalog
+ * @param {{results?: Record<string, {state?: string}>}} availability
+ * @returns {{total: number, available?: number, regionLimited?: number, removed?: number}}
+ */
+function bucketOf(catalog, availability) {
+  const results = availability?.results ?? {}
+  if (Object.keys(results).length === 0) return { total: catalog.length }
+  let available = 0
+  let regionLimited = 0
+  let removed = 0
+  for (const entry of catalog) {
+    const state = results[entry.id]?.state
+    if (state === STATE.unavailable) removed += 1
+    else if (state === STATE.regionBlocked) regionLimited += 1
+    else available += 1
+  }
+  return { total: catalog.length, available, regionLimited, removed }
+}
+
+/**
+ * 最近一轮探测摘要（status/probe 共用）。无轮次给 null。
+ *
+ * @param {{results?: Record<string, {state?: string}>, at?: number}} availability
+ */
+function lastProbeSummary(availability) {
+  const rows = Object.values(availability?.results ?? {})
+  if (rows.length === 0) return null
+  /** @type {Record<string, number>} */
+  const byState = {}
+  for (const row of rows) {
+    const key = row.state ?? 'unknown'
+    byState[key] = (byState[key] ?? 0) + 1
+  }
+  return {
+    at: typeof availability.at === 'number' && availability.at > 0 ? new Date(availability.at).toISOString() : null,
+    models: rows.length,
+    byState,
+  }
+}
 
 /** @param {string} key */
 const tail4 = key => (typeof key === 'string' && key !== '' ? key.slice(-4) : '')
@@ -122,8 +180,8 @@ async function probeHealth(host, port) {
 }
 
 /**
- * status 报告（§8.2）：端口在场、Key 尾4 与来源、上游/出口/effort、模型数。
- * 公网 IP 与探测摘要属 M4/M3 后台轮，这里如实列 pending。
+ * status 报告（§8.2）：端口在场、Key 尾 4 与来源、公网 IP、LAN 地址、
+ * 上游/出口/effort、模型分桶与最近探测摘要——全是实态，无 pending。
  *
  * @param {ReturnType<typeof loadConfig>} config
  */
@@ -132,6 +190,9 @@ async function statusReport(config) {
   const relayHealth = config.lan.enabled ? await probeHealth(config.lan.host, config.lan.port) : 'disabled'
   const forwardKey = readKey(config.data, 'forward-key', config.listen.key)
   const lanKey = config.lan.enabled ? readKey(config.data, 'lan-key', config.lan.key) : null
+  const { catalog, availability } = readRounds(config)
+  const ip = await fetchPublicIp(config.ip)
+  const lanAddresses = rankLanAddresses(os.networkInterfaces()).map((address, index) => ({ address, kind: index === 0 ? '物理' : '虚拟' }))
   return {
     version: VERSION,
     configPath: config.configPath,
@@ -144,8 +205,11 @@ async function statusReport(config) {
     listeners: { forward: forwardHealth, lan: relayHealth },
     key: { source: forwardKey.source, tail4: tail4(forwardKey.key) },
     lanKey: lanKey ? { source: lanKey.source, tail4: tail4(lanKey.key) } : null,
-    models: FALLBACK_CATALOG.length,
-    pending: ['公网出口IP（M4 ipinfo）', '最近探测摘要（M3 probe 轮）'],
+    ip,
+    lanAddresses,
+    models: bucketOf(catalog, availability),
+    probe: lastProbeSummary(availability),
+    pending: [],
   }
 }
 
@@ -223,10 +287,15 @@ const commands = {
           log(`[egress] 通道 ${lane.transition === 'bench' ? `切直连 ${Math.round((lane.benchUntil - Date.now()) / 1000)}s` : '回中继'}（direct=${lane.direct}, strikes=${lane.strikes}）`),
       })
     }
-    const availability = AVAILABILITY_EMPTY
+    // ②b 盘上轮次重放：重启即显上一轮清单与裁决；首轮后台轮再刷新
+    const rounds = readRounds(config)
+    let catalog = rounds.catalog
+    let availability = rounds.availability
+    const availabilityStore = new JsonStore(`${config.data}/availability.json`, { results: {} })
+    const catalogStore = new JsonStore(`${config.data}/catalog.json`, { ids: [] })
     const state = () => ({
-      catalog: FALLBACK_CATALOG,
-      membership: /** @type {Record<string, string[]>} */ (computeMembership(FALLBACK_CATALOG, availability, RUNTIME_SETTINGS)),
+      catalog,
+      membership: /** @type {Record<string, string[]>} */ (computeMembership(catalog, availability, RUNTIME_SETTINGS)),
       settings: RUNTIME_SETTINGS,
       attributionUserAgent: 'zenbox',
     })
@@ -239,7 +308,7 @@ const commands = {
       onQuotaHit: () => scheduleOutletRotation('配额拒绝（Rate limit exceeded）'),
     })
     const complete = createRunForwarded({
-      getCatalog: () => FALLBACK_CATALOG,
+      getCatalog: () => catalog,
       getState: state,
       getSettings: () => RUNTIME_SETTINGS,
       adapter,
@@ -254,7 +323,7 @@ const commands = {
         fallback: config.listen.fallback,
       }),
       complete,
-      modelRows: () => publicModelRows(FALLBACK_CATALOG, routableModelIds(state, RUNTIME_SETTINGS)),
+      modelRows: () => publicModelRows(catalog, routableModelIds(state, RUNTIME_SETTINGS)),
       log: line => log(`[forward] ${line}`),
     })
     // ④ LAN 中继（默认关；独立 Key，targetPort 指向本机转发口）
@@ -280,7 +349,7 @@ const commands = {
       keyTail: tail4(forwardKey.key),
       relayUp: relay !== null,
       lanPort: relay?.port,
-      models: FALLBACK_CATALOG.length,
+      models: bucketOf(catalog, availability),
     })
     log(`[listen] 转发口 ${config.listen.host}:${forward.port}${forward.fellBack && forward.requestedPort !== forward.port ? `（顺延自 ${forward.requestedPort}）` : ''} · Key 尾4 ${tail4(forwardKey.key)}`)
     if (relay !== null) log(`[listen] 中继口 ${relay.host}:${relay.port} · LAN 独立 Key 尾4 ${tail4(lanKey?.key ?? '')}`)
@@ -313,6 +382,79 @@ const commands = {
     }
     void ipRound()
     const ipTimer = setInterval(() => void ipRound(), config.ip.refreshMinutes * 60_000)
+    // ⑥a 清单轮：上游 /zen/v1/models 换掉回退/旧盘清单；失败保留旧 roster
+    //（素材 refreshCatalogOnce 语义——坏清单绝不能伪装成空池）。
+    const catalogRound = async () => {
+      try {
+        const base = config.upstream.base.replace(/\/+$/, '')
+        const response = await egressFetch(`${base}/zen/v1/models`, {
+          headers: { 'user-agent': 'zenbox' },
+          signal: AbortSignal.timeout(Math.min(config.upstream.timeoutMs, 15000)),
+        })
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        const ids = parseListing(await response.json())
+        if (ids.length === 0) throw new Error('清单为空')
+        const changed = ids.join(' ') !== catalog.map(entry => entry.id).join(' ')
+        catalog = buildCatalog(ids)
+        if (changed) {
+          catalogStore.edit(store => ({ ...store, ids, at: Date.now() }))
+          out(renderModelsLine(bucketOf(catalog, availability)))
+        }
+        log(`[catalog] 上游清单 ${ids.length} 个${changed ? '（已更新）' : '（无变化）'}`)
+      } catch (error) { roundWarn('模型清单', error) }
+    }
+    // ⑥b 探测轮：逐模型真发 ping，裁决边到边写盘；全拒保留清单、
+    // 全 429 指数退避（素材 runProbeRound 的两条语义——探测与对话共享
+    // 同一 IP 池，把池探干只会让短缺永久化）。
+    let probeBackoffUntil = 0
+    let probeStreak = 0
+    /** @type {Promise<void>|null} */
+    let probeInFlight = null
+    const probeRound = (force = false) => {
+      if (!config.probe.enabled) return Promise.resolve()
+      if (!force && Date.now() < probeBackoffUntil) return Promise.resolve()
+      if (probeInFlight !== null) return probeInFlight
+      probeInFlight = (async () => {
+        try {
+          const results = await probeCatalog(catalog, { attributionUserAgent: 'zenbox', timeoutMs: config.probe.timeoutMs }, (id, result) => {
+            const row = {
+              state: result.state,
+              ...result.detail === undefined ? {} : { detail: result.detail },
+              ...result.ttftMs === undefined ? {} : { ttftMs: result.ttftMs },
+              latencyMs: result.latencyMs,
+              at: Date.now(),
+            }
+            availability = { ...availability, results: { ...availability.results, [id]: row } }
+            availabilityStore.edit(store => ({ ...store, results: { ...store.results, [id]: row } }))
+          }, config.probe.concurrency)
+          availabilityStore.edit(store => ({ ...store, at: Date.now() }))
+          const verdicts = Object.values(results)
+          if (verdicts.length > 0 && verdicts.every(row => row.state === STATE.unavailable)) {
+            log(`[warn] 网关本轮拒绝全部 ${verdicts.length} 个模型（${verdicts[0].detail ?? '无拒因'}）——清单保留、继续广告`)
+          }
+          const allThrottled = verdicts.length > 0 && verdicts.every(row => row.state === STATE.throttled)
+          probeStreak = allThrottled ? probeStreak + 1 : 0
+          probeBackoffUntil = allThrottled
+            ? Date.now() + Math.min(30 * 2 ** (probeStreak - 1), 120) * 60_000
+            : 0
+          if (allThrottled) {
+            log(`[warn] 探测轮打满配额——下轮探测退避 ${Math.round((probeBackoffUntil - Date.now()) / 60_000)} 分钟（你自己的请求不受影响）`)
+          }
+          const bucket = bucketOf(catalog, availability)
+          out(renderModelsLine(bucket))
+          log(`[probe] 一轮完成：${bucket.total} 个 · 可用 ${bucket.available} · 地区受限 ${bucket.regionLimited} · 移除 ${bucket.removed}`)
+        } catch (error) { roundWarn('可用性探测', error) }
+        finally { probeInFlight = null }
+      })()
+      return probeInFlight
+    }
+    // 首轮：清单先、探测后（探测按清单发）；此后各自按节奏走。
+    void (async () => {
+      await catalogRound()
+      await probeRound(true)
+    })()
+    const catalogTimer = setInterval(() => void catalogRound(), config.catalog.refreshMinutes * 60_000)
+    const probeTimer = config.probe.enabled ? setInterval(() => void probeRound(), config.probe.intervalMinutes * 60_000) : null
     // 5s 自测（§8.4）：带 Key 拿 200、不带 Key 拿 401——两条都对才算这条
     // 链活着；任何一条不对就把 doctor 甩给用户，不假装就绪。
     setTimeout(() => {
@@ -341,11 +483,15 @@ const commands = {
       closing = true
       clearInterval(heartbeat)
       clearInterval(ipTimer)
+      clearInterval(catalogTimer)
+      if (probeTimer !== null) clearInterval(probeTimer)
       log(`[stop] 收到 ${signal}，优雅关闭（中继/转发口回收 + 统计落盘）`)
       try { if (relay !== null) await relay.close() } catch { /* 关闭尽力 */ }
       try { await forward.close() } catch { /* 关闭尽力 */ }
       try { if (egressRelay !== null) await egressRelay.close() } catch { /* 关闭尽力 */ }
       stats.dispose()
+      availabilityStore.dispose()
+      catalogStore.dispose()
       process.exit(0)
     }
     process.on('SIGINT', () => void shutdown('SIGINT'))
@@ -369,38 +515,50 @@ const commands = {
       lanPort: config.lan.port,
     })
     process.stdout.write(`[status] forward=${report.listeners.forward} lan=${report.listeners.lan} key=${report.key.source}/尾4 ${report.key.tail4 || '无'}（中继 ${report.key.source === 'config' && !config.lan.enabled ? '关' : report.listeners.lan}）\n`)
+    process.stdout.write(`[status] ip=${report.ip.ip ?? '?'}${report.ip.country ? ` (${report.ip.country})` : ''} lan=${report.lanAddresses[0]?.address ?? '-'} probe=${report.probe ? `${report.probe.models} 个模型 @ ${report.probe.at ?? '?'}（${Object.entries(report.probe.byState).map(([state, count]) => `${state}:${count}`).join(' ')}）` : '尚无轮次'}\n`)
     if (report.pending.length > 0) process.stdout.write(`[pending] ${report.pending.join('；')}\n`)
   },
 
-  // —— models：静态回退清单 + routable 门（§8.2；探测分桶 M3 接入）——
+  // —— models：盘上清单 + 裁决分桶（§8.2；start 的后台轮每轮刷新盘）——
   models(config, { json }) {
-    const membership = computeMembership(FALLBACK_CATALOG, AVAILABILITY_EMPTY, RUNTIME_SETTINGS)
-    const rows = /** @type {{id: string, context_window?: number}[]} */ (publicModelRows(FALLBACK_CATALOG, routableModelIds(() => ({ membership }), RUNTIME_SETTINGS)))
+    const { catalog, availability } = readRounds(config)
+    const membership = computeMembership(catalog, availability, RUNTIME_SETTINGS)
+    const rows = /** @type {{id: string, context_window?: number}[]} */ (publicModelRows(catalog, routableModelIds(() => ({ membership }), RUNTIME_SETTINGS)))
+    const bucket = bucketOf(catalog, availability)
+    const verdicts = lastProbeSummary(availability)
     const report = {
+      source: catalog === FALLBACK_CATALOG ? 'fallback' : 'data/catalog.json',
+      bucket,
       available: rows.length,
       models: rows.map(row => ({ id: row.id, context_window: row.context_window ?? null })),
-      verdicts: 'unknown（M3 probe 轮接入后分 available/region-limited/removed 带拒因）',
+      verdicts,
     }
     if (json) {
       process.stdout.write(`${JSON.stringify(report, null, 2)}\n`)
       return
     }
-    process.stdout.write(`[models] ${report.available} 个模型（静态回退清单；${report.verdicts}）\n`)
+    const bucketText = verdicts === null
+      ? `${bucket.total} 个 · 分桶待探测`
+      : `${bucket.total} 个 · 可用 ${bucket.available ?? 0} · 地区受限 ${bucket.regionLimited ?? 0} · 移除 ${bucket.removed ?? 0}`
+    process.stdout.write(`[models] ${bucketText}（来源 ${report.source}，可路由 ${report.available}）\n`)
     for (const row of report.models) process.stdout.write(`  - ${row.id}${row.context_window ? `（ctx ${row.context_window}）` : ''}\n`)
   },
 
-  // —— probe：M3 后台轮接入；配置节奏如实展示——
+  // —— probe：配置节奏 + 盘上最近一轮摘要（start 后台轮落 data/availability.json）——
   probe(config, { json }) {
+    const { availability } = readRounds(config)
     const report = {
       enabled: config.probe.enabled,
       intervalMinutes: config.probe.intervalMinutes,
       concurrency: config.probe.concurrency,
       timeoutMs: config.probe.timeoutMs,
-      lastRound: null,
-      pending: 'M3 probe 轮接入（data/availability.json 落盘）',
+      lastRound: lastProbeSummary(availability),
     }
+    const lastText = report.lastRound === null
+      ? '尚无轮次（start 后首轮清单拉完即探）'
+      : `${report.lastRound.models} 个模型 @ ${report.lastRound.at ?? '?'}（${Object.entries(report.lastRound.byState).map(([state, count]) => `${state}:${count}`).join(' ')}）`
     if (json) process.stdout.write(`${JSON.stringify(report, null, 2)}\n`)
-    else process.stdout.write(`[probe] enabled=${report.enabled} 每 ${report.intervalMinutes}min 并发 ${report.concurrency} 超时 ${report.timeoutMs}ms —— ${report.pending}\n`)
+    else process.stdout.write(`[probe] enabled=${report.enabled} 每 ${report.intervalMinutes}min 并发 ${report.concurrency} 超时 ${report.timeoutMs}ms —— 最近一轮 ${lastText}\n`)
   },
 
   // —— key：查看尾4 / rotate 轮换（旧 Key 即刻 401，§8.2）——
@@ -436,18 +594,29 @@ const commands = {
       : `[key] ${name} 未生成（首次 start 生成 data/${name}，0600）\n`)
   },
 
-  // —— doctor：node/配置/监听在场/Key/upstream（upstream 自检 M4 接入，如实 PENDING）——
+  // —— doctor：node/配置/监听在场/Key/upstream 可达（出网只此一处，诊断即授权）——
   async doctor(config, { json }) {
     const [major, minor] = process.versions.node.split('.').map(Number)
     const forwardHealth = await probeHealth(config.listen.host, config.listen.port)
     const relayHealth = config.lan.enabled ? await probeHealth(config.lan.host, config.lan.port) : 'disabled'
     const keySnap = readKey(config.data, 'forward-key', config.listen.key)
+    let upstreamOk = false
+    let upstreamDetail = 'PENDING'
+    try {
+      const base = config.upstream.base.replace(/\/+$/, '')
+      const response = await egressFetch(`${base}/zen/v1/models`, { headers: { 'user-agent': 'zenbox' }, signal: AbortSignal.timeout(5000) })
+      const ids = parseListing(await response.json())
+      upstreamOk = ids.length > 0
+      upstreamDetail = `HTTP ${response.status} · ${ids.length} 个模型`
+    } catch (error) {
+      upstreamDetail = `不可达（${/** @type {{message?: string}} */ (error)?.message ?? String(error)}）`
+    }
     const checks = [
       { name: 'node', ok: major > 22 || (major === 22 && minor >= 19), detail: process.version },
       { name: 'config-valid', ok: true, detail: config.configPath ?? '（默认值）' },
       { name: 'listeners', ok: forwardHealth === 'up', detail: `forward=${forwardHealth} lan=${relayHealth}${forwardHealth === 'up' ? '' : '（start 未运行？）'}` },
       { name: 'key', ok: keySnap.key !== '', detail: `${keySnap.source}/尾4 ${tail4(keySnap.key) || '无'}` },
-      { name: 'upstream-reachable', ok: false, detail: 'PENDING（M4 健康自检接入；本轮不真出网）' },
+      { name: 'upstream-reachable', ok: upstreamOk, detail: upstreamDetail },
     ]
     const report = { version: VERSION, ok: checks.every(check => check.ok), checks }
     if (json) process.stdout.write(`${JSON.stringify(report, null, 2)}\n`)

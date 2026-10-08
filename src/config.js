@@ -370,5 +370,9 @@ export function loadConfig({ argv = [], env = {}, configPath = null, fileText, f
   const cfg = structuredClone(validateConfig(merged))
   cfg.data = normalizeData(cfg.data, cwd)
   cfg.configPath = resolvedPath
+  // 归一后的上游 base 是对话/探测链的单一真相（flag > OFM_* env > 文件 > 默认）：
+  // 同步进 src/upstream.js 的惰性读取键，否则 config.json 的 base 对 postStreamed
+  // 不生效（那是 module-load 快照的旧口径）。
+  process.env.OUR_FREE_MODEL_BASE = cfg.upstream.base
   return deepFreeze(cfg)
 }

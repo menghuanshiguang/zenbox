@@ -30,8 +30,8 @@ server.unref()
 // Set before the adapter module reads it: UPSTREAM_BASE is captured at import time.
 process.env.OUR_FREE_MODEL_BASE = `http://127.0.0.1:${server.address().port}`
 
-const { FreeModelAdapter, ROUTE_MAIN, ROUTE_REGION } = await import('../src/adapter.js')
-const { finishReason } = await import('../src/stream.js')
+const { FreeModelAdapter, ROUTE_MAIN, ROUTE_REGION } = await import('../../src/adapter.js')
+const { finishReason } = await import('../../src/stream.js')
 
 let failures = 0
 const check = (name, actual, expected) => {
