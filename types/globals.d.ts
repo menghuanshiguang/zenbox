@@ -41,3 +41,4 @@ declare const Response: any
 declare const TextEncoder: any
 declare const TextDecoder: any
 declare const performance: any
+interface ImportMeta { url: string }

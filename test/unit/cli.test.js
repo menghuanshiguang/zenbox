@@ -37,13 +37,14 @@ check('parseArgv: 以 -- 开头的其余参数原样进 flags（交 loadConfig f
   assert.deepEqual(parsed.positional, ['status'])
 })
 
-// —— printBanner（§8.4 字段）——
+// —— printBanner（§8.4 框渲染，字段锁在 banner.test；此处锁宿主映射）——
 const config = loadConfig({ argv: [] })
-check('printBanner: 版本行 + 默认本机转发行', () => {
+check('printBanner: §8.4 框头版本 + 本机转发行', () => {
   const lines = []
   printBanner(config, line => lines.push(line), {})
-  assert.equal(lines[0], `zenbox v${VERSION} · opencode 免费模型中继`)
-  assert.ok(lines.some(line => line.startsWith('本机转发') && line.includes('127.0.0.1:18899')))
+  assert.ok(lines[0].startsWith('┌') && lines[0].includes(`zenbox v${VERSION}`), `框头=${lines[0]}`)
+  assert.ok(lines.some(line => line.includes('本机转发') && line.includes('http://127.0.0.1:18899')))
+  assert.ok(lines.at(-1).startsWith('└'), '框尾闭合')
 })
 check('printBanner: 端口顺延时如实标出原端口（#23）', () => {
   const lines = []
@@ -53,7 +54,7 @@ check('printBanner: 端口顺延时如实标出原端口（#23）', () => {
 check('printBanner: Key 尾4 与模型数异步补行', () => {
   const lines = []
   printBanner(config, line => lines.push(line), { keyTail: 'bodR', models: 8 })
-  assert.ok(lines.some(line => line.includes('尾4 bodR')))
+  assert.ok(lines.some(line => line.includes('ofm-****bodR')))
   assert.ok(lines.some(line => line.includes('8 个')))
 })
 check('printBanner: lan 默认关闭文案含独立 Key 提示', () => {

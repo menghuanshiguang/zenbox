@@ -3,6 +3,7 @@
 ## ① 模块索引
 
 # adapter.js — 免密网关的 provider 适配器：双路由注册、三种线上协议转换、流式读取与有界断流续写
+# banner.js — 启动横幅的框渲染：§8.4 字段结构、异步占位与补行
 # catalog.js — 免费车道模型目录：上游清单与本地能力表合并
 # channel.js — 回调源到异步迭代消费者的单生产者单消费通道
 # config.js — 四层配置装载与逐字段校验，非法即拒绝启动
@@ -10,6 +11,7 @@
 # egress.js — 全部上游请求共用的可切换出口（回环中继 + client/subscription 双拨号）
 # forward.js — OpenAI 兼容转发监听器与 LAN 中继：本机回环接收外部 harness 请求，鉴权转译后以调用方拼写流式回传
 # http.js — 出站请求与 SSE 读取：体态嗅探、头窗重放、网关失败到中立错误码的分类
+# ipinfo.js — 公网出口 IP 的三家降级探测
 # messages.js — harness 消息词表到三种上游线形的出站投影与工具 schema 转换
 # probe.js — 模型可用性探测与出口公网地址探测
 # recovery.js — 缺终帧与纯思考空停的有界续写恢复策略及配套工具
@@ -25,6 +27,7 @@
 
 <!-- deps:begin 由 scripts/gen-deps.mjs 生成，禁止手改 -->
 - adapter.js → channel.js, effort.js, http.js, messages.js, recovery.js, stream.js, upstream.js
+- banner.js → （无本地依赖）
 - catalog.js → upstream.js
 - channel.js → （无本地依赖）
 - config.js → effort.js
@@ -32,6 +35,7 @@
 - egress.js → （无本地依赖）
 - forward.js → upstream.js
 - http.js → egress.js, upstream.js
+- ipinfo.js → （无本地依赖）
 - messages.js → upstream.js
 - probe.js → egress.js, http.js, upstream.js
 - recovery.js → （无本地依赖）
@@ -40,7 +44,7 @@
 - trust.js → （无本地依赖）
 - turn.js → adapter.js, effort.js, forward.js, probe.js
 - upstream.js → （无本地依赖）
-- start.js → adapter.js, catalog.js, config.js, egress.js, forward.js, store.js, turn.js
+- start.js → adapter.js, banner.js, catalog.js, config.js, egress.js, forward.js, ipinfo.js, store.js, turn.js
 <!-- deps:end -->
 
 ## ③ 阅读路径

@@ -18,7 +18,7 @@ gates.test 校验测试列引用的 id 存在。
 | #76 | 已移植（M2，port-of #76） | `src/forward.js` `rankLanAddresses`/`VIRTUAL_IFACE`；面板轮询 API 不适用（无 Web UI），banner/status 现读（M4） | upstream-forward |
 | #75 | 已移植（M3，port-of #75）——onQuotaHit→refreshOutletExit({avoid}) | `src/adapter.js` quota 回调 + `src/egress.js` refreshOutletExit/controllerJson 升级；宿主冷却轮换已接线 start.js | upstream-egress |
 | #74 | 已移植（M1 effort 单元 + M3 forward 端到端，port-of #74） | `src/effort.js` normalizeLevel/LEVEL_ALIASES（M1）+ `src/forward.js` callerEffort 三门（chat/responses 两端抬到 reasoning_effort）+ `src/turn.js` publicModelRows `x_ofm_efforts`/`x_ofm_effort_default` 暴露 | effort-unit、upstream-forward、turn-unit |
-| #72 | 移植：监听先行 boot-order（勿误读为不移植） | 待移植（M4 start 时序） | — |
+| #72 | 已移植（M4，port-of #72） | `src/config.js` + `start.js` 时序：监听/banner 在网络轮之前；后台轮逐轮 try 包裹失败只记 `[warn]` 不挡监听；`boot-order.test` 上游挂死断言 | boot-order |
 | #41 | 已移植（M2，port-of #41） | 设备 IP 贯穿链：`forward.js` `serveCompletion`/`proxyHeaderV1` 认领源 → `turn.js` options → `adapter.js` → `http.js` → `upstream.js` `x-forwarded-for`；4+1 断言 | upstream-forward |
 | #40 | 已移植（M2，port-of #40） | `src/forward.js` PROXY v1 嗅探/解析/前门+中继非池化；6 断言 | upstream-forward |
 | #45 | 已部分移植（M3，port-of #45 = egress.mode=proxy） | `src/config.js` EGRESS_MODES 三态 `direct\|proxy\|subscription` + `src/egress.js` client 分支 `cfg.password` 独立字段合成拨号 URL（url 永不含密码，内联优先）+ start.js 三态映射（proxy→client/password、subscription→受管 mihomo）；密码平台 seal（secret.js/DPAPI）不进 v0.1——无 Web UI，config 三途径 | upstream-egress |

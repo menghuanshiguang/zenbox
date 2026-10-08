@@ -115,17 +115,19 @@ function gateTsc() {
   }
 }
 
-// ── L0 ④ shell 脚本检查（M4 起存在 start.sh 等，缺位时注明） ────────────────
+// ── L0 ④ shell 脚本检查（bash 语法必查；shellcheck 有则查，缺位只注明） ──────
 function gateShell() {
   const scripts = walk('', ['.sh'])
-  if (scripts.length === 0) { skip('L0', 'bash -n + shellcheck', '仓库暂无 *.sh（M4 三平台启动脚本落地后启用）'); return }
+  if (scripts.length === 0) { skip('L0', 'bash -n + shellcheck', '仓库暂无 *.sh'); return }
+  const probe = run('bash', ['--version'])
+  if (probe.error) { skip('L0', 'bash -n + shellcheck', '本机无 bash（语法与 shellcheck 由 CI 的 ubuntu/macos/windows 执行）'); return }
   let ok = true
   const details = []
   for (const file of scripts) {
     const syntax = run('bash', ['-n', file])
-    if (syntax.status !== 0) { ok = false; details.push(`${file}: ${syntax.stderr}`) }
+    if (syntax.status !== 0) { ok = false; details.push(`${file}: ${syntax.stderr ?? syntax.stdout ?? 'bash -n 失败'}`) }
     const lint = run('shellcheck', [file])
-    if (lint.error) { ok = false; details.push(`${file}: shellcheck 不可用`) }
+    if (lint.error) details.push('shellcheck 未装（不阻塞；CI ubuntu 覆盖）')
     else if (lint.status !== 0) { ok = false; details.push(`${file}: ${lint.stdout}`) }
   }
   record('L0', `bash -n + shellcheck (${scripts.length})`, ok, details.join('; '))

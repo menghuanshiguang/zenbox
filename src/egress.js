@@ -298,6 +298,15 @@ function egressLaneOf(relay) {
  * Mirrors `startForwardServer`'s contract: the caller (`syncEgress`) owns the
  * idempotence — close the old one first — and this function only builds the
  * new one or fails.
+ *
+ * @param {object} options
+ * @param {() => {mode?: string, url?: string, password?: string, mihomoPath?: string}} options.config 每次重读的出口形状
+ * @param {string} options.dataDir
+ * @param {(line: string) => void} [options.log]
+ * @param {(error: any) => void} [options.onDead] mihomo 意外退出
+ * @param {(error: any) => void} [options.onFault] 隧道分账（#82）
+ * @param {(lane: {transition: string, benchUntil: number, direct: number, strikes: number}) => void} [options.onLane] 梯子换态
+ * @param {{strikes?: number, bypassMs?: number, bypassMaxMs?: number}} [options.policy] 梯子参数（测试注入）
  */
 export async function startEgressRelay({ config, dataDir, log = () => {}, onDead, onFault, onLane, policy }) {
   const cfg = { mode: 'subscription', url: '', mihomoPath: '', ...config() }

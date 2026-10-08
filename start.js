@@ -13,7 +13,10 @@
  */
 import process from 'node:process'
 import { ConfigError, loadConfig } from './src/config.js'
-import { startForwardServer, startLanRelay } from './src/forward.js'
+import { renderBanner, renderIpLine, renderLanAddressLine } from './src/banner.js'
+import os from 'node:os'
+import { fetchPublicIp } from './src/ipinfo.js'
+import { startForwardServer, startLanRelay, rankLanAddresses } from './src/forward.js'
 import { FreeModelAdapter } from './src/adapter.js'
 import { createRunForwarded, computeMembership, routableModelIds, publicModelRows } from './src/turn.js'
 import { JsonStore, STATS_INITIAL, recordUsage, recordTurn, ensureKey, rotateKey, readKey } from './src/store.js'
@@ -61,7 +64,7 @@ export function parseArgv(argv) {
  */
 function loadOrDie(argv) {
   try {
-    return loadConfig({ argv })
+    return loadConfig({ argv, env: process.env })
   } catch (error) {
     if (error instanceof ConfigError) fail(`${error.message}（字段: ${error.field}）`)
     else fail(error instanceof Error ? error.message : String(error))
@@ -76,31 +79,27 @@ function loadOrDie(argv) {
  *
  * @param {ReturnType<typeof loadConfig>} config
  * @param {(line: string) => void} [out]
- * @param {{port?: number, requestedPort?: number, fellBack?: boolean, keyTail?: string, relayUp?: boolean, lanPort?: number, models?: number}} [runtime]
+ * @param {{port?: number, requestedPort?: number, fellBack?: boolean, keyTail?: string, relayUp?: boolean, lanPort?: number, models?: number|{total: number, available?: number, regionLimited?: number, removed?: number}|null, ip?: {ip: string, country: string, provider: string}|null, lanAddresses?: {address: string, kind: string}[]|null}} [runtime]
  */
 export function printBanner(config, out = line => process.stdout.write(`${line}\n`), runtime = {}) {
   const port = runtime.port ?? config.listen.port
-  const moved = runtime.fellBack === true && typeof runtime.requestedPort === 'number' && runtime.requestedPort !== port
-  const lanState = !config.lan.enabled
-    ? '关闭（config lan.enabled=true 或 --lan 开启，独立 Key 与本机不通用）'
-    : runtime.relayUp === true
-      ? `${config.lan.host}:${runtime.lanPort ?? config.lan.port}（中继监听中，LAN 独立 Key）`
-      : `${config.lan.host}:${config.lan.port}（未监听——start 运行中才绑定）`
-  const keyLine = runtime.keyTail
-    ? `尾4 ${runtime.keyTail}（data/forward-key，0600）`
-    : '未生成（首次 start 生成 data/forward-key，0600）'
-  const modelsLine = typeof runtime.models === 'number'
-    ? `${runtime.models} 个（静态回退清单；探测分桶 M3 后台轮补）`
-    : '等待首次刷新（M3 后台轮补行）'
-  out(`zenbox v${VERSION} · opencode 免费模型中继`)
-  out(`配置文件   ${config.configPath ?? '（无，使用默认值）'}`)
-  out(`本机转发   ${config.listen.host}:${port}${moved ? `（端口被占，已顺延自 ${runtime.requestedPort}）` : ''}`)
-  out(`局域网     ${lanState}`)
-  out(`上游       ${config.upstream.base}（超时 ${config.upstream.timeoutMs}ms）`)
-  out(`出口       ${config.egress.mode}`)
-  out(`Key        ${keyLine}`)
-  out(`模型清单   ${modelsLine}`)
-  out('公网出口IP 等待后台刷新（M4 行）')
+  const requestedPort = runtime.requestedPort ?? config.listen.port
+  const lines = renderBanner({
+    version: VERSION,
+    upstream: `${config.upstream.base}/zen/v1`,
+    listen: { host: config.listen.host, port, requestedPort, fellBack: runtime.fellBack === true && requestedPort !== port },
+    keyTail: runtime.keyTail ?? null,
+    lan: {
+      enabled: config.lan.enabled,
+      host: config.lan.host,
+      port: runtime.lanPort ?? config.lan.port,
+      fellBack: runtime.relayUp === true && typeof runtime.lanPort === 'number' && runtime.lanPort !== config.lan.port,
+    },
+    ip: runtime.ip ?? null,
+    lanAddresses: runtime.lanAddresses ?? null,
+    models: typeof runtime.models === 'number' ? { total: runtime.models } : (runtime.models ?? null),
+  })
+  for (const line of lines) out(line)
 }
 
 /**
@@ -166,6 +165,7 @@ const commands = {
     //    M3 probe 轮落 data/availability.json 后在此重放。
     // ①′ 出口（#75/#82 宿主半）：非 direct 才起本地出口中继，配额拒绝与隧道
     //    连击都走同一条换出口路（60s 冷却 + 单飞 + 被拒节点 10min 候补）
+    /** @type {any} 出口中继句柄（direct 模式保持 null） */
     let egressRelay = null
     /** @type {Map<string, number>} 被限流过的节点 → 记录时刻（10 分钟候补） */
     const limitedNodes = new Map()
@@ -174,6 +174,7 @@ const commands = {
     let lastRotationAt = 0
     /** @type {Promise<void>|null} */
     let rotating = null
+    /** @param {string} reason */
     const rotateOutletExit = async reason => {
       const relay = egressRelay
       if (relay === null) return
@@ -195,6 +196,7 @@ const commands = {
       }
       log(`[egress] ${reason} → ${rotated.previous ?? current ?? '?'} 换到 ${rotated.node}（${rotated.delayMs}ms，${rotated.candidates} 个候选${rotated.switched ? '' : '，已在最优未变动'}）`)
     }
+    /** @param {string} reason */
     const scheduleOutletRotation = reason => {
       if (egressRelay === null) return
       if (Date.now() - lastRotationAt < OUTLET_ROTATE_COOLDOWN_MS) return
@@ -215,9 +217,10 @@ const commands = {
       egressRelay = await startEgressRelay({
         config: () => egressShape,
         dataDir: config.data,
-        log: line => log(`[egress] ${line}`),
-        onFault: error => scheduleOutletRotation(`出口连击失败（${error?.message ?? error}）`),
-        onLane: lane => log(`[egress] 通道 ${lane.transition === 'bench' ? `切直连 ${Math.round((lane.benchUntil - Date.now()) / 1000)}s` : '回中继'}（direct=${lane.direct}, strikes=${lane.strikes}）`),
+        log: (/** @type {string} */ line) => log(`[egress] ${line}`),
+        onFault: (/** @type {any} */ error) => scheduleOutletRotation(`出口连击失败（${error?.message ?? error}）`),
+        onLane: (/** @type {{transition: string, benchUntil: number, direct: number, strikes: number}} */ lane) =>
+          log(`[egress] 通道 ${lane.transition === 'bench' ? `切直连 ${Math.round((lane.benchUntil - Date.now()) / 1000)}s` : '回中继'}（direct=${lane.direct}, strikes=${lane.strikes}）`),
       })
     }
     const availability = AVAILABILITY_EMPTY
@@ -281,7 +284,55 @@ const commands = {
     })
     log(`[listen] 转发口 ${config.listen.host}:${forward.port}${forward.fellBack && forward.requestedPort !== forward.port ? `（顺延自 ${forward.requestedPort}）` : ''} · Key 尾4 ${tail4(forwardKey.key)}`)
     if (relay !== null) log(`[listen] 中继口 ${relay.host}:${relay.port} · LAN 独立 Key 尾4 ${tail4(lanKey?.key ?? '')}`)
-    // ⑥ 优雅关闭：SIGINT/SIGTERM/冒烟钩子共用一条路
+    // ⑥ 后台轮（§3 时序）：每一轮独立 try 包裹，失败只记一行 warn，
+    // 永不阻塞已起的监听、不带走其它轮（#72 的教训：网络轮是 boot 唯一
+    // 的出网步，它失败只该报它自己）。
+    /** @type {(what: string, error: unknown) => void} */
+    const roundWarn = (what, error) =>
+      log(`[warn] ${what} 一轮失败（${/** @type {{message?: string}} */ (error)?.message ?? String(error)}）——监听照常，下轮再试`)
+    /** @param {string} line */
+    const out = line => process.stdout.write(`${line}\n`)
+    /** @type {{address: string, kind: string}[]|null} */
+    let lanAddresses = null
+    const addressRound = () => {
+      try {
+        const ranked = rankLanAddresses(os.networkInterfaces())
+        if (ranked.length === 0) return
+        const next = ranked.map((address, index) => ({ address, kind: index === 0 ? '物理' : '虚拟' }))
+        const changed = JSON.stringify(next) !== JSON.stringify(lanAddresses)
+        lanAddresses = next
+        if (changed) out(renderLanAddressLine(next))
+      } catch (error) { roundWarn('LAN 地址', error) }
+    }
+    addressRound()
+    const ipRound = async () => {
+      try {
+        const ip = await fetchPublicIp(config.ip)
+        out(renderIpLine(ip))
+      } catch (error) { roundWarn('公网出口 IP', error) }
+    }
+    void ipRound()
+    const ipTimer = setInterval(() => void ipRound(), config.ip.refreshMinutes * 60_000)
+    // 5s 自测（§8.4）：带 Key 拿 200、不带 Key 拿 401——两条都对才算这条
+    // 链活着；任何一条不对就把 doctor 甩给用户，不假装就绪。
+    setTimeout(() => {
+      void (async () => {
+        const base = `http://${forward.port === 0 ? '127.0.0.1' : (config.listen.host === '0.0.0.0' || config.listen.host === '::' ? '127.0.0.1' : config.listen.host)}:${forward.port}`
+        const statusOf = async (headers = {}) => {
+          try {
+            const response = await fetch(`${base}/v1/models`, { headers, signal: AbortSignal.timeout(2000) })
+            return response.status
+          } catch {
+            return 0
+          }
+        }
+        const withKey = await statusOf({ authorization: `Bearer ${forwardKey.key}` })
+        const without = await statusOf()
+        if (withKey === 200 && without === 401) log('[selftest] /v1/models 带 Key 200 / 无 Key 401 ✓')
+        else log(`[selftest] 自测不对（带 Key=${withKey} 无 Key=${without}，期望 200/401）——运行 zenbox doctor 查因`)
+      })()
+    }, 5000)
+    // ⑦ 优雅关闭：SIGINT/SIGTERM/冒烟钩子共用一条路
     let closing = false
     const heartbeat = setInterval(() => log(`[heartbeat] ${new Date().toISOString()} 在线`), 60_000)
     /** @type {(signal: string) => Promise<void>} */
@@ -289,6 +340,7 @@ const commands = {
       if (closing) return
       closing = true
       clearInterval(heartbeat)
+      clearInterval(ipTimer)
       log(`[stop] 收到 ${signal}，优雅关闭（中继/转发口回收 + 统计落盘）`)
       try { if (relay !== null) await relay.close() } catch { /* 关闭尽力 */ }
       try { await forward.close() } catch { /* 关闭尽力 */ }
@@ -300,7 +352,6 @@ const commands = {
     process.on('SIGTERM', () => void shutdown('SIGTERM'))
     const smokeMs = Number(process.env.OFM_SMOKE_MS)
     if (Number.isFinite(smokeMs) && smokeMs > 0) setTimeout(() => void shutdown('SMOKE'), smokeMs)
-    // ⑦ 前台日志：请求行由 [forward]/[relay] 前缀流出；后台轮（清单/探测/出口IP）M3/M4 接入
     return undefined
   },
 
