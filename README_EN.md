@@ -72,7 +72,7 @@ npm test             # L0 static gates + L1 units + L2 integration (stub gateway
 npm run test:live    # L3 live tests (opt-in with --allow-live; the default tier never touches the network)
 ```
 
-CI runs on ubuntu/amd64, ubuntu/arm64, macOS and Windows: `npm ci`, `npm test`, plus a start smoke test. Module index and dependency map live in [`docs/INDEX.md`](docs/INDEX.md); the fate of all 15 unmerged upstream PRs is tracked line by line in [`docs/pr-coverage.md`](docs/pr-coverage.md).
+CI runs on ubuntu/amd64, ubuntu/arm64, macOS and Windows: `npm ci`, `npm test`, plus a start smoke test. Module index and dependency map live in [`docs/INDEX.md`](docs/INDEX.md); the fate of all 15 unmerged upstream PRs is tracked line by line in [`docs/pr-coverage.md`](docs/pr-coverage.md); the §12 DoD evidence table is in [`docs/conformance.md`](docs/conformance.md).
 
 ## Upstream
 

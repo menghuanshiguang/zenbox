@@ -111,7 +111,7 @@ npm run test:live    # L3 live（默认档禁真实出网，显式 --allow-live 
 
 - 三平台 CI（ubuntu/amd64、ubuntu/arm64、macOS、Windows）：`npm ci` + `npm test` + start 冒烟。
 - 文档同步是硬门禁：改 `src/*.js` 必须同提交更新 `docs/modules/<同名>.md`（十节齐全），`test/meta/gates.test.js` 双向对账。
-- 模块索引与依赖速览见 [`docs/INDEX.md`](docs/INDEX.md)；15 个未合并上游 PR 的取舍逐行记在 [`docs/pr-coverage.md`](docs/pr-coverage.md)；开发机环境记录在 [`docs/env.md`](docs/env.md)。
+- 模块索引与依赖速览见 [`docs/INDEX.md`](docs/INDEX.md)；15 个未合并上游 PR 的取舍逐行记在 [`docs/pr-coverage.md`](docs/pr-coverage.md)；§12 DoD 八项的验收证据汇在 [`docs/conformance.md`](docs/conformance.md)；开发机环境记录在 [`docs/env.md`](docs/env.md)。
 
 ## 上游与来源
 

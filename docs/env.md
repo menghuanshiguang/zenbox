@@ -17,6 +17,7 @@
 - curl 联网需显式 `-x http://127.0.0.1:7897`
 - npm 走 npmmirror（`--registry=https://registry.npmmirror.com`），registry.npmjs.org 直连不可达
 - github.com 直连 443 重置，经代理可达
+- 2026-10-08 实况更新：7897 后端（verge-mihomo）运行时配置无 `proxies:`、订阅源全超时 → **代理整体失效**；`git push` 9 连败（github.com reset、ssh.github.com:443/:22 全不通），但 **`api.github.com` 直连可达** → 推送逃生路径：`gh api` 的 Git Data API（blob 逐个上传→建树（base_tree 不支持删除，需重建整棵子树）→建提交（本地 author/committer/时间戳逐字段复刻使 SHA 逐字节一致）→PATCH `refs/heads/main`），网络恢复后 `git push` 只会 `Everything up-to-date`。gh CLI 与 PR diff 拉取一直走 api.github.com，不受 github.com reset 影响。
 
 ## 自举步骤
 
