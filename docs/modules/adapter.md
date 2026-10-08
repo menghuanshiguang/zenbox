@@ -89,6 +89,7 @@
 | `scripts/tui-test.mjs`（不迁，未执行） | dsh-tui composition 宿主面——zenbox 无 TUI（§13 N/A）；保留在 `scripts/` 作素材，不入 run-gates |
 | `scripts/run-gates.mjs`（npm test） | 门禁聚合器：L2 自动执行 `test/integration` 与 `test/upstream` 全部套件（含上表 offline/picker/effort/truncation/recovery） |
 | `scripts/probes/*.mjs` | `decode-window`、`long-answer`、`long-think-truncation`、`shell-slot-promotion` 直接实例化 `FreeModelAdapter` 的实测探针 |
+| `test/unit/adapter.test.js`（adapter-unit，5 断言） | #102 四态（catalog chat/responses 声明、messages 不声明、两回退分支）+ §7.2 补 `ROUTE_LABELS` 分组标题字面量与键集 |
 
 ## 已知边界
 
@@ -108,3 +109,4 @@
 - 2026-10-07 M2 移植 #41：`options.deviceIp` → `postStreamed`；recovery-test 端到端一断言红→绿。
 - 2026-10-08 M3 移植 #75：`runStream` catch 加 `CODE.quota → onQuotaHit`，构造 JSDoc 补两回调；`test/upstream/retry-safety-test.test.mjs` quota hook 红→绿。
 - 2026-10-08 M3 移植 #84：`QUOTA_RETRY_LIMIT/refusals/refusalRetry` 拒后单次重发（宿主换出口成功才重发、attempt 回退同 payload、同 requestId 计费归同一逻辑轮、finally `!refusalRetry` 门）；`retry-safety-test` quota 重发四断言红→绿（8 形态全绿）。
+- 2026-10-08 M5 §7.2 导出审计：`ROUTE_LABELS` 此前 0 命中——`adapter.test` 补 1 组断言（4→5），测试对照表补 `adapter-unit` 行。

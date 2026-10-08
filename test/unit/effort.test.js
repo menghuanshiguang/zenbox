@@ -6,8 +6,8 @@
 // 运行: node test/unit/effort.test.js
 import { strict as assert } from 'node:assert'
 import {
-  DEFAULT_LEVEL, MIN_BUDGET, budgetFor, budgetLadder, defaultEffortFor,
-  effortsFor, hasDeclaredEffortMenu, normalizeLevel, resolveLevel, supportsEffort,
+  DEFAULT_LEVEL, MIN_BUDGET, ALWAYS_THINKING_FACTOR, LEVELS, budgetFor, budgetLadder, defaultEffortFor,
+  effortsFor, effortPatchFor, hasDeclaredEffortMenu, menuDefaultLevel, normalizeLevel, resolveLevel, supportsEffort,
 } from '../../src/effort.js'
 import { buildCatalog } from '../../src/catalog.js'
 
@@ -98,6 +98,35 @@ await check('effortsFor：菜单模型给菜单，free 车道给带真实预算�
   assert.deepEqual(effortsFor(MIMO, undefined, DEFAULTS).map(row => row.id), ['light', 'balanced', 'deep'])
   assert.equal(effortsFor(UNION, undefined, DEFAULTS), undefined)
 })
+await check('LEVELS/ALWAYS_THINKING_FACTOR：档位表与翻倍系数定值', async () => {
+  assert.deepEqual(LEVELS.map(row => row.id), ['light', 'balanced', 'deep']) // 选择器顺序即数组序
+  assert.equal(LEVELS[0].ceiling, 2048)
+  assert.equal(LEVELS[1].ceiling, 8192)
+  assert.equal(LEVELS[2].ceiling, undefined) // deep 不设上限
+  assert.equal(ALWAYS_THINKING_FACTOR, 2) // 必思考模型的梯级翻倍系数
+})
+await check('menuDefaultLevel：菜单默认优先，缺省回落首档，无菜单给 undefined', async () => {
+  assert.equal(menuDefaultLevel(MENU), 'medium') // effortDefault 在表内
+  assert.equal(menuDefaultLevel({ ...MENU, effortDefault: 'nope' }), 'disabled') // 默认不在表 → 首档
+  assert.equal(menuDefaultLevel({ id: 'x' }), undefined) // 无 efforts 数组
+  assert.equal(menuDefaultLevel({ efforts: [] }), undefined) // 空菜单
+})
+await check('effortPatchFor：无菜单 null、$effort 实例化、off 走 offPatch', async () => {
+  assert.equal(effortPatchFor('light', MIMO), null) // free 梯子模型没有 patch 面
+  assert.equal(effortPatchFor('low', MENU), null) // 有菜单但未声明 patch 模板
+  assert.deepEqual(
+    effortPatchFor('low', { ...MENU, effortPatch: { reasoning_effort: '$effort' } }),
+    { reasoning_effort: 'low' },
+  ) // 菜单内档位直通
+  assert.deepEqual(
+    effortPatchFor('nope', { ...MENU, effortPatch: { a: '$effort' } }),
+    { a: 'medium' }, // 未知写法回菜单默认（与 resolveLevel 同口径）
+  )
+  assert.deepEqual(
+    effortPatchFor('disabled', { ...MENU, effortPatch: { a: '$effort' }, effortOffPatch: { thinking: { type: '$effort' } } }),
+    { thinking: { type: 'disabled' } }, // off 档有专属模板时不复用主模板
+  )
+})
 
 console.log(`effort.test: ${passed} passed`)
-if (passed !== 16) process.exitCode = 1
+if (passed !== 19) process.exitCode = 1

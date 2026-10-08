@@ -39,12 +39,16 @@ jobs:
         run: npm ci
       - name: L0 + L1 + L2 门禁
         run: npm test
-      - name: start 冒烟（banner 出现后优雅退出）
+      - name: start 冒烟（三平台脚本直跑，banner 出现后优雅退出）
         shell: bash
         run: |
           set -euo pipefail
           node start.js status --json > smoke.json
           grep -q '"version": "0.1.0"' smoke.json
-          OFM_SMOKE_MS=2000 node start.js start > smoke-start.log 2>&1
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            OFM_SMOKE_MS=2000 cmd //c "start.cmd > smoke-start.log 2>&1"
+          else
+            OFM_SMOKE_MS=2000 ./start.sh > smoke-start.log 2>&1
+          fi
           grep -q 'zenbox v0.1.0' smoke-start.log
           grep -q '本机转发' smoke-start.log

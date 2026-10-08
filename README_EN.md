@@ -20,10 +20,10 @@ A free-model relay you start with one command: the terminal prints an IP banner 
 
 ## Highlights
 
-- **One command** — `./start.sh` (macOS/Linux) or `start.ps1` (Windows): load config → bind listeners first → print the §8.4 banner (local forward port, key tail, LAN addresses, public egress IP filled in asynchronously) → stream foreground logs. SIGINT/SIGTERM shuts down gracefully (ports reclaimed, stats flushed).
+- **One command** — `./start.sh` (macOS/Linux) or `start.ps1` on Windows (prefer `powershell -NoProfile -ExecutionPolicy Bypass -File start.ps1` — machines whose `.ps1` association points at an editor won't run a bare path) or `start.cmd`: load config → bind listeners first → print the §8.4 banner (local forward port, key tail, LAN addresses, public egress IP filled in asynchronously) → stream foreground logs. SIGINT/SIGTERM shuts down gracefully (ports reclaimed, stats flushed).
 - **Zero runtime npm dependencies** — `dependencies` is empty; `typescript` is the only devDependency used for type checking. No build step.
 - **OpenAI-compatible surface** — `/v1/chat/completions` (SSE + non-streaming), `/v1/responses`, `/v1/models`, `/health`; tool calls, an 8 MiB body cap and SSE heartbeats included. Every request validates the key (`timingSafeEqual`); after `key rotate` the old key is 401 immediately. Keys are stored 0600 under `data/`.
-- **LAN multi-device** — the relay door listens on its own (port 0 auto-assigns by default), gated by a LAN key that is **not** interchangeable with the local one. PROXY v1 device attribution (front-door sniff + unpooled per-request header on the relay) carries the real device IP into the gateway's `x-forwarded-for`, and the local log names the true origin.
+- **LAN multi-device** — the relay door listens on its own (port 0 auto-assigns by default), gated by a LAN key that is **not** interchangeable with the local one. PROXY v1 device attribution (front-door sniff + unpooled per-request header on the relay) carries the real device IP into the gateway's `x-forwarded-for`, and the local log names the true origin. **The LAN key spends the same free quota — enable it only on networks you trust (home/office LAN, never exposed across an untrusted boundary).**
 - **Effort that actually ships** — Light / Balanced / Deep map to real output-token budgets (2 048 / 8 192 / model cap), selectable via `reasoning_effort`, nested `reasoning.effort`, or a `(level)` suffix on the model name. `/v1/models` exposes `x_ofm_efforts` / `x_ofm_effort_default` per row.
 - **Three egress modes** — `direct`, `subscription` (failover with three-way fault accounting), or a self-hosted `proxy` URL.
 - **Availability probing** — per-model probe outcomes (OK / unavailable / rate-limited / region-limited), a fully-refused round never empties the catalog, and failures are logged without ever blocking the listeners.
@@ -76,8 +76,12 @@ CI runs on ubuntu/amd64, ubuntu/arm64, macOS and Windows: `npm ci`, `npm test`, 
 
 ## Upstream
 
-This repository was carved out of [`Ebony-Vinyl/dsh-our-free-model`](https://github.com/Ebony-Vinyl/dsh-our-free-model) at its `main` branch (dsh host, EAC/Kilo lanes and distribution surfaces removed) while keeping and porting the applicable unmerged PRs. The free lane is served by the OpenCode Zen gateway (https://opencode.ai), connected directly — **do not send sensitive content over it**.
+This repository was carved out of [`Ebony-Vinyl/dsh-our-free-model`](https://github.com/Ebony-Vinyl/dsh-our-free-model) at its `main` branch (dsh host and distribution surfaces removed) while keeping and porting the applicable unmerged PRs. Three disclaimers: ①client identity — this relay reaches upstream with a fixed pooled credential (`Bearer public`) and fingerprint headers representing your own egress; ②the free lane is served by the OpenCode Zen gateway (https://opencode.ai) directly, connected without third-party relays, and upstream may record prompts to improve its service — **do not send sensitive content**; ③region-limited models are grouped separately by probe verdicts — your egress is not allowed there, they are not removed.
+
+## Planned
+
+- **Docker image** — planned (not in v0.1; the three platform start scripts and bare Node cover the local/LAN cases).
 
 ## License
 
-[MIT](LICENSE)
+MIT — derived from [`Ebony-Vinyl/dsh-our-free-model`](https://github.com/Ebony-Vinyl/dsh-our-free-model) (also MIT); the carve-out, ports and new code in this repository share the same license. See [LICENSE](LICENSE).

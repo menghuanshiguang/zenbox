@@ -55,7 +55,7 @@
 | 测试 | 覆盖点 |
 | --- | --- |
 | `test/upstream/projection-test.test.mjs` | 主覆盖：V3/V4 两代工具结果各恰好上行一次（`repairToolPairing` + 三投影计数）、孤儿调用/无主结果/无 call id 结果丢弃（不再 400 整会话）、无名调用按 issue #92 丢弃（三线一致）、并行调用批、`isError`→`is_error`、图像 offload 与 `image-dropped` 警告、空结果 `'(no output)'`、构造良好的回合 byte-for-byte 不被改写、混合包裹文本次序（`assistant/tool/tool/user`）、Claude 侧同文本不重复附着、并行图片结果相邻性（第 8 节，#112/#113）。 |
-| `test/unit/messages-projection.test.js` | 独立回归（messages-projection）：#113——chat/responses 两线的并行结果必须背靠背、图片跟随行全部在其后、混合包裹文本保留一次、源历史不被投影改动。 |
+| `test/unit/messages-projection.test.js` | 独立回归（messages-projection，5 断言）：#113——chat/responses 两线的并行结果必须背靠背、图片跟随行全部在其后、混合包裹文本保留一次、源历史不被投影改动；`needsVision` 未 offload 图片块才 true、offload/文本/空/缺省各一态（§7.2 补）。 |
 | `test/upstream/forward-test.test.mjs` | `toToolDefs`：flat harness def 与 OpenAI `{function:{…}}` 包裹 def 都能读（不丢工具）、二次转换保留全部调用方工具（#26 区块）、与 `applyFingerprint` 联动（非空列表不钉 `tool_choice`）。 |
 
 （`test/upstream/picker-test.test.mjs` 未引用本模块：grep 证实 `src/messages.js` 的 import 方仅 `src/adapter.js`、上述两测试。）
@@ -74,3 +74,4 @@
 
 - 2026-10-07 建档（M0，依据上游 fbc3b9b + AGENT-BRIEF）。
 - 2026-10-07 M1：#113 判定为源码已含（followUp 次序 + projection-test 第 8 节全绿），建独立回归 `test/unit/messages-projection.test.js`（4 断言）；#27/#102 关联处置同步。本文件同步。
+- 2026-10-08 M5：§7.2 导出审计补 `needsVision` 断言（messages-projection 5 断言）。

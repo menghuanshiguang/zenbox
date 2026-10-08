@@ -28,6 +28,8 @@
     "upstream-trust": "test/upstream/trust-test.test.mjs",
     "upstream-fingerprint": "test/upstream/fingerprint-test.test.mjs",
     "upstream-projection": "test/upstream/projection-test.test.mjs",
-    "upstream-speed-stat": "test/upstream/speed-stat-test.test.mjs"
+    "upstream-speed-stat": "test/upstream/speed-stat-test.test.mjs",
+    "upstream-unit": "test/unit/upstream.test.js",
+    "forward-unit": "test/unit/forward.test.js"
   }
 }

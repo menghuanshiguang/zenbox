@@ -3,7 +3,7 @@
 // 顶层字段，声明只会换来重写而非缓存命中，故不声明。红→绿的第一条红。
 // 运行: node test/unit/adapter.test.js（run-gates.mjs 统一收集）
 import { strict as assert } from 'node:assert'
-import { FreeModelAdapter, ROUTE_MAIN } from '../../src/adapter.js'
+import { FreeModelAdapter, ROUTE_MAIN, ROUTE_LABELS } from '../../src/adapter.js'
 
 let passed = 0
 /** @param {string} name @param {() => void | Promise<void>} fn */
@@ -49,5 +49,11 @@ await check('catalog 不认识的 chat 线模型也声明（回退分支）', as
   assert.equal(info.systemPromptUpdate, 'in-history')
 })
 
+await check('ROUTE_LABELS：两个路由的分组标题字面量', async () => {
+  assert.equal(ROUTE_LABELS[ROUTE_MAIN], 'Our Free Model')
+  assert.equal(ROUTE_LABELS['our-free-model-region'], 'Our Free Model · region-limited')
+  assert.deepEqual(Object.keys(ROUTE_LABELS), [ROUTE_MAIN, 'our-free-model-region']) // 只有这两组，顺序即路由主从
+})
+
 console.log(`adapter.test: ${passed} passed`)
-if (passed !== 4) process.exitCode = 1
+if (passed !== 5) process.exitCode = 1

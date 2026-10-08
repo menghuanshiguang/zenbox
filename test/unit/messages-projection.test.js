@@ -4,7 +4,7 @@
 // 再一次性吐出延后的图片与包裹文本。源码投影次序已含（同 #27 情形），
 // 本用例锁住它。运行: node test/unit/messages-projection.test.js
 import { strict as assert } from 'node:assert'
-import { repairToolPairing, toChatMessages, toResponseInput } from '../../src/messages.js'
+import { repairToolPairing, toChatMessages, toResponseInput, needsVision, baseModelId } from '../../src/messages.js'
 
 let passed = 0
 /** @param {string} name @param {() => void | Promise<void>} fn */
@@ -72,5 +72,17 @@ await check('源历史不被投影改动', async () => {
   assert.equal(JSON.stringify(source), original)
 })
 
+await check('needsVision：未 offload 的图片块才要视觉，文本与缺省不算', async () => {
+  assert.equal(needsVision([{ content: [{ type: 'image', mediaType: 'image/png' }] }]), true)
+  assert.equal(needsVision([{ content: [{ type: 'image', mediaType: 'image/png', offloaded: true }] }]), false) // 已卸载不算
+  assert.equal(needsVision([{ content: [{ type: 'text', text: 'hi' }] }]), false)
+  assert.equal(needsVision([]), false)
+  assert.equal(needsVision(undefined), false) // 缺省守卫
+})
+
+await check('re-export：baseModelId 从本模块出口可剥思考后缀', async () => {
+  assert.equal(baseModelId('muse-spark-1.3 (deep)'), 'muse-spark-1.3') // 与 src/upstream.js 同一实现，走本出口再断一次
+})
+
 console.log(`messages-projection.test: ${passed} passed`)
-if (passed !== 4) process.exitCode = 1
+if (passed !== 6) process.exitCode = 1

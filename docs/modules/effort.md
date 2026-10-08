@@ -51,14 +51,14 @@
 
 | PR | 处置 | 落点/理由 |
 | --- | --- | --- |
-| #74 | 已移植（M1 effort 单元 + M3 forward 端到端） | `LEVEL_ALIASES` + `normalizeLevel` + `resolveLevel` 梯子分支走归一（`src/effort.js`）：minimal/low/none/off/disabled→light、medium→balanced、high/xhigh/max→deep，大小写与首尾空格不敏感；**声明菜单模型分支保持自身 id 精确匹配，别名不劫持**。M3 补 forward 侧：`src/forward.js` 私有 `callerEffort` 三门提升（chat/responses 两端）+ `src/turn.js` `publicModelRows` 的 `x_ofm_efforts`/`x_ofm_effort_default` 暴露（与菜单同用 `effortsFor`）。测试 `test/unit/effort.test.js`（effort-unit，16 断言）+ `test/upstream/forward-test.test.mjs` #74 四断言 + `test/unit/turn.test.js` x_ofm 两态 |
+| #74 | 已移植（M1 effort 单元 + M3 forward 端到端） | `LEVEL_ALIASES` + `normalizeLevel` + `resolveLevel` 梯子分支走归一（`src/effort.js`）：minimal/low/none/off/disabled→light、medium→balanced、high/xhigh/max→deep，大小写与首尾空格不敏感；**声明菜单模型分支保持自身 id 精确匹配，别名不劫持**。M3 补 forward 侧：`src/forward.js` 私有 `callerEffort` 三门提升（chat/responses 两端）+ `src/turn.js` `publicModelRows` 的 `x_ofm_efforts`/`x_ofm_effort_default` 暴露（与菜单同用 `effortsFor`）。测试 `test/unit/effort.test.js`（effort-unit，19 断言）+ `test/upstream/forward-test.test.mjs` #74 四断言 + `test/unit/turn.test.js` x_ofm 两态 |
 
 ## 测试对照
 
 | 测试 | 覆盖点 |
 | --- | --- |
 | `test/upstream/effort-test.test.mjs` | 实测通过（尾行 `effort: the ladder is the budget`）：`canDisableThinking` 目录位；梯子翻倍（mimo `[4096,16384,32768]`、muse `[2048,8192,32768]`、无档位模型三档全为窗口 32768）；`isDefault` 只标 `balanced`；会话 ceiling/插件默认/模型容量/`MIN_BUDGET` 四重 min；0/负数/非数字 fallback 读作无上限而数值仍钳制；`resolveLevel` 三态（菜单缺档回菜单默认、无菜单模型不套档、未知档回 `DEFAULT_LEVEL`）；真 adapter 实发 `max_tokens` 与 `usage.effort` 记录一致（含未知档记为回落后的默认）；DSML 控制标记清洗不影响正文与工具 |
-| `test/unit/effort.test.js` | #74 单元（effort-unit，16 断言）：`normalizeLevel` 别名全表+大小写空格+非字符串；`resolveLevel` 别名解析/未知词落默认/无菜单不套档/**菜单分支不被别名劫持**；`budgetFor` none/off/disabled→最小档 4096 与 OpenAI 写法同预算；核心导出 `DEFAULT_LEVEL`/`MIN_BUDGET`/`budgetLadder`/`supportsEffort`/`hasDeclaredEffortMenu`/`defaultEffortFor`/`effortsFor` 各 ≥1 断言 |
+| `test/unit/effort.test.js` | #74 单元（effort-unit，19 断言）：`normalizeLevel` 别名全表+大小写空格+非字符串；`resolveLevel` 别名解析/未知词落默认/无菜单不套档/**菜单分支不被别名劫持**；`budgetFor` none/off/disabled→最小档 4096 与 OpenAI 写法同预算；`LEVELS` 档位表定值（light 2048/balanced 8192/deep 无上限）与 `ALWAYS_THINKING_FACTOR=2`；`menuDefaultLevel` 默认在表/回落首档/无菜单三态；`effortPatchFor` 无菜单 null、`$effort` 实例化、未知写法回菜单默认、off 档专属 offPatch；核心导出 `DEFAULT_LEVEL`/`MIN_BUDGET`/`budgetLadder`/`supportsEffort`/`hasDeclaredEffortMenu`/`defaultEffortFor`/`effortsFor` 各 ≥1 断言 |
 | `scripts/probes/long-answer.mjs` | 以 `budgetFor` 驱动长回答预算探针（辅助） |
 
 ## 已知边界

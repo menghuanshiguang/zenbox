@@ -12,7 +12,7 @@ node test/manual/lan-live.mjs   # 期望尾行 lan-live: PASS，exit 0
 
 执行器做的事（每步即断言）：
 
-1. 起桩网关（`stubUpstream`，回声 `lan-ok`），以 `OUR_FREE_MODEL_BASE` 指向它。
+1. 起桩网关（`stubUpstream`，回声 `lan-ok`），以 `OFM_UPSTREAM` 指向它（`loadConfig` 归一后会同步进 `OUR_FREE_MODEL_BASE`，对话链才走桩）。
 2. 真 CLI `node start.js start --lan 0.0.0.0:<空闲口>`（`OFM_SMOKE_MS=20000` 兜底），等 `[listen] 中继口` 行。
 3. 取 `rankLanAddresses` 首选非回环地址（#76）当"第二设备"，读 `data/lan-key`（`ofm-` 前缀）。
 4. 该 LAN 地址上 POST `/v1/chat/completions`（Bearer LAN Key，`stream:true`）→ 断言 200 且 SSE 正文含桩回声。
@@ -44,7 +44,7 @@ lan-live: PASS — 第二客户端凭 LAN Key 流式对话成功
 | 4 | 看本机 zenbox 日志 | `lan relay: <手机真实IP> → /v1/chat/completions`；`forward: <手机真实IP>:<port> → POST …`（#40/#41，**不是** 127.0.0.1 也不是中继隧道口） | ☐ |
 | 5 | 拿错 Key / 空 Key 各试一次 | 401 `missing or invalid API key`，`/health` 同样被挡 | ☐ |
 | 6 | 关 `lan.enabled` 重启 | 中继口不监听，503/不可达 | ☐ |
-| 7 | 真实上游（去 `OUR_FREE_MODEL_BASE`）对话一轮 | 正常回复；网关侧收到 `x-forwarded-for: <手机IP>`（#41，可用上游日志/抓包核） | ☐ |
+| 7 | 真实上游（不设 `OFM_UPSTREAM`，走 `config.upstream.base` 默认 `https://opencode.ai`）对话一轮 | 正常回复；网关侧收到 `x-forwarded-for: <手机IP>`（#41，可用上游日志/抓包核） | ☐ |
 
 ## 记录区
 

@@ -23,7 +23,7 @@
 
 ## 亮点
 
-- **一条命令**——`./start.sh`（macOS/Linux）或 `start.ps1`（Windows）：加载配置 → 监听先行 → 打出 §8.4 banner（本机转发口、Key 尾 4、LAN 地址、公网出口 IP 异步补行）→ 前台日志。SIGINT/SIGTERM 优雅关闭（转发口回收 + 统计落盘）。
+- **一条命令**——`./start.sh`（macOS/Linux）或 `start.ps1`（Windows，建议 `powershell -NoProfile -ExecutionPolicy Bypass -File start.ps1`——避免 `.ps1` 文件关联到编辑器的机器上双击行为）或 `start.cmd`：加载配置 → 监听先行 → 打出 §8.4 banner（本机转发口、Key 尾 4、LAN 地址、公网出口 IP 异步补行）→ 前台日志。SIGINT/SIGTERM 优雅关闭（转发口回收 + 统计落盘）。
 - **运行时零 npm 依赖**——`dependencies` 为空，仅 `devDependencies: typescript` 做类型检查；无构建步骤，克隆即可跑。
 - **OpenAI 兼容面**——`/v1/chat/completions`（SSE 流式 + 非流式）、`/v1/responses`、`/v1/models`、`/health`；工具调用、8 MiB 请求体上限、心跳注释帧齐备。Key 每请求校验（`timingSafeEqual`），`key rotate` 后旧 Key 立即 401，Key 以 0600 落盘 `data/`。
 - **局域网多设备**——`lan.enabled` 打开后中继门独立监听（默认端口 0 自动分配、可配），LAN Key 与本机 Key **不通用**；PROXY v1 设备地址归因（前门嗅探 + 中继非池化逐请求头），设备真实 IP 贯穿到网关的 `x-forwarded-for`，本机日志显示真实来源 IP。**LAN Key 同样消耗免费额度——仅限你信任的网络启用（家庭/办公内网，别对公网 0.0.0.0 暴露到不可信边界）。**

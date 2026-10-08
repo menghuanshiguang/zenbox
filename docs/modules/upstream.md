@@ -70,6 +70,7 @@
 
 | 测试 | 覆盖点 |
 | --- | --- |
+| `test/unit/upstream.test.js`（upstream-unit，8 例） | §7.2 导出审计补齐：`upstreamBase()` 惰性随 env 与 `UPSTREAM_BASE` 同源；UA/头常量字面（`CLIENT_UA`/`ANTHROPIC_API_VERSION`/`MAX_TOOL_NAME_LEN`）；`SESSION_RE`/`REQUEST_RE` 锁铸造形状（正例+反例）；`sessionForConversation` 同对话稳定/已规范 id 直通/无会话兜底；`requestIdFor` 同轮稳定与空 seed 退铸造；`baseModelId` 剥后缀、`isResponsesModel`/`isMessagesModel`/`endpointFor`/`wireFor` 三线路由；`declaredToolNames` 平铺+嵌套双拼写与缺名丢弃；`truncateSession` 256 上限与类型守卫 |
 | `test/upstream/fingerprint-test.test.mjs` | `applyFingerprint`：四件套全声明、大小写变体归一 + `restoreToolName` 回译、`pwsh`→`bash` 提升后调用可执行、`'claude'` 风格补齐与回译、调用方工具缺位时的 decoy 兜底。 |
 | `test/upstream/recovery-test.test.mjs` | `sessionForConversation` 跨续写 `x-opencode-session` 不变、`mintRequestId` 每次请求 `x-opencode-request` 独立；`wireFor` 对三条线形的选择。 |
 | `test/upstream/forward-test.test.mjs` | `applyFingerprint` 与 `toToolDefs` 联动：非空工具列表不钉 `tool_choice`、空列表钉 `'none'`、提升槽位 `map.get('bash') === 'pwsh'`。 |
@@ -93,3 +94,4 @@
 - 2026-10-07 建档（M0，依据上游 fbc3b9b + AGENT-BRIEF）。
 - 2026-10-07 M2 移植 #41：`gatewayHeaders` 增 `deviceIp`→`x-forwarded-for`；forward-test 四断言 + recovery-test 端到端一断言红→绿。
 - 2026-10-08 M5 拆 base 双口径：新增 `upstreamBase()` 惰性读 env（`loadConfig` 把 `config.upstream.base` 归一同步进 `OUR_FREE_MODEL_BASE`），`http.js` 两处改调用；`UPSTREAM_BASE` 常量保留但降级为探针素材专用。根因：旧口径 import 时快照导致 config.json 的 `upstream.base` 对对话/探测链不生效。
+- 2026-10-08 M5 §7.2 导出审计：本模块 22 个导出符号中 15 个此前无测试引用（gap）+2 个仅注释提及——建 `test/unit/upstream.test.js`（8 例，coverage-map id `upstream-unit`）一次性补齐，`baseModelId` mention 转真断言。

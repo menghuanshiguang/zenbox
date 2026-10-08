@@ -29,7 +29,7 @@ async function main() {
   const transcript = []
   const child = spawn(process.execPath, ['start.js', 'start', '--lan', `0.0.0.0:${lanPort}`], {
     cwd: root,
-    env: { ...process.env, OUR_FREE_MODEL_BASE: stub.base, OFM_SMOKE_MS: '20000' },
+    env: { ...process.env, OFM_UPSTREAM: stub.base, OUR_FREE_MODEL_BASE: stub.base, OFM_SMOKE_MS: '20000' },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   const feed = chunk => {

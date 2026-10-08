@@ -90,6 +90,7 @@
 | --- | --- |
 | `test/upstream/forward-test.test.mjs`（1325 行，81 项 `checkAsync`/`check`） | 工具线序（`tool_calls[].index` 从 0 重排、指纹 decoy 抑制、截断帧 `finish=length`、非流式 `executableCalls` 过滤）；**#74 四断言**（尾缀 `(deep)` 携带档位、显式 `reasoning_effort` 优先于尾缀、嵌套 `reasoning.effort` 抬升、`/v1/responses` 同款三门）；非 JSON 请求体→400；**8MiB 请求体→413**（`MAX_BODY_BYTES` 红线）；**#76 四断言**（虚拟网卡不领头、组内 OS 原序+IPv6/回环/APIPA 剔除、同址去重、无可用回 `[]`）；**#40 六断言**（PROXY 行归因设备、直连无 `forward:` 行、双连接不串扰、中继两请求各自来源——非池化、畸形 PROXY 拒绝、截断握手按 2s 探测超时死且 HTTP 零字节）；**#41 四断言**（PROXY 设备到达 complete、本地 completion 无 device、中继门上 PROXY 声明的设备传下去而非隧道 socket、`gatewayHeaders` 有/无 `deviceIp` 的 `x-forwarded-for` 两态）；**中继端口被占顺延**（squatter 占位 → `startLanRelay` 走 `bindForwardPort` 回落到空闲口且 200 可用）；`/v1/responses` 的 `instructions`/`max_output_tokens`/`stream`/`usage`/`incomplete`/`output_index` 分配；#66 reasoning 别名（`reasoning_content`/`reasoning_text`/`reasoning_details`/Anthropic 拼写归并）；#92 无名工具块降级；SSE 心跳（15s 注释帧、`close()` 停止、正常 finish 不动、默认间隔前静默）；`resolveLoopbackBind` 拒绝可路由解析、`classifyBindError` 各类错误码、`bindForwardPort` 等释放/保端口/顺延、`startForwardServer` 回报实际端口；LAN relay 八项（无 key 含 `/health`、空 key、换本机 key 重发、流式承载、非通用代理、503×2、508 自打转、被占顺延）；请求诊断十项（含 LAN 双跳链接、回调抛错、畸形 URL、健康/名单无诊断）；#62 合成行 `model` 来源；`toOpenAiUsage` 归一 |
 | `scripts/run-gates.mjs`（npm test） | 门禁聚合器：L0 静态 + L1 单元 + L2（`test/integration` + `test/upstream` 全量）一键执行，`forward-test.test.mjs` 在 L2 每次必跑 |
+| `test/unit/forward.test.js`（forward-unit，3 例） | §7.2 导出审计补：`keyMatches` 对/错/异长/非串四态（含 `generateKey` 形状）；`SSE_HEARTBEAT_MS=15000` 定值（mention 转真断言）；`toOpenAiUsage` 聚合（input+cacheRead→prompt、total、两 details 分账、空 usage 全 0、undefined 整体缺席） |
 | `test/unit/config.test.js` | `src/config.js` 键校验（`listen`/`lan` 等键名与本模块注入键的对应关系由其把关；转发行为本身不经此文件） |
 
 ## 已知边界
@@ -112,3 +113,4 @@
 - 2026-10-07 M2：接 §8.1 `listen.fallback`——`config().fallback===false` 时 `attempts:1`（占用即失败），缺省顺延；`bindForwardPort`/`startForwardServer` 补全 JSDoc 形状（options.address/port、config.fallback、heartbeatMs、返回型 requestedPort/fellBack/bindError/host）。
 - 2026-10-08 M3：port-of #74 forward 端到端——新增私有 `callerEffort` 三门，`chatCompletions`/`responsesEndpoint` 改 `asked` 抬升到 `reasoning_effort`；forward-test #74 四断言红→绿（81 项全绿）。
 - 2026-10-07 M2：中继监听改走 `bindForwardPort`（#23 原则）——被占 LAN 口顺延不再炸 start，返回补 `requestedPort/fellBack/bindError`；`forward-test` 加 413 与中继顺延两断言（77 项）；L4 执行器 `test/manual/lan-live.mjs` 实测 PASS（`lan-checklist.md` A 段记录）。
+- 2026-10-08 M5 §7.2 导出审计：`keyMatches`/`toOpenAiUsage` 此前 0 命中、`SSE_HEARTBEAT_MS` 仅注释提及——建 `test/unit/forward.test.js`（3 例，coverage-map id `forward-unit`）补齐。
