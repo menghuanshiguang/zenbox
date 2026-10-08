@@ -315,6 +315,12 @@ export async function startEgressRelay({ config, dataDir, log = () => {}, onDead
     if (!CLIENT_SCHEMES.has(parsed.protocol)) {
       throw new Error(`unsupported proxy scheme "${parsed.protocol}" — use http, https, socks5 or socks5h`)
     }
+    // The password rides as its own config field, not inside the address: the
+    // stored url can then travel through a config line, a log line or a status
+    // report without carrying the credential with it. An inline password in the
+    // url still wins, so hand-edited configs keep working (#45).
+    const separate = String(cfg.password ?? '')
+    if (separate !== '' && parsed.password === '') parsed.password = separate
     outlet = { kind: 'url', url: parsed }
   } else {
     const binary = findMihomoBinary(cfg.mihomoPath)

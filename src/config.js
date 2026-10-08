@@ -65,7 +65,7 @@ const SECTION_KEYS = {
 }
 const LOG_LEVELS = new Set(['debug', 'info', 'warn', 'error'])
 const EFFORT_IDS = new Set(LEVELS.map(level => level.id))
-const EGRESS_MODES = new Set(['direct', 'proxy'])
+const EGRESS_MODES = new Set(['direct', 'proxy', 'subscription'])
 const IP_PROVIDERS = new Set(['ipify', 'ipinfo', 'ipapi'])
 
 /**

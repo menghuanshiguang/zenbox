@@ -35,7 +35,7 @@
 | `catalog.refreshMinutes` | `30` | 同上（1..1440） | 清单刷新周期 |
 | `probe.enabled/intervalMinutes/concurrency` | `true / 60 / 2` | 同上（5..1440；1..8） | 探测轮配置 |
 | `effort` | `balanced` | 同上（∈ LEVELS ids） | 默认思考档位 |
-| `egress.mode` | `direct` | 同上（direct\|proxy） | 出口形态 |
+| `egress.mode` | `direct` | 同上（direct\|proxy\|subscription 三态） | 出口形态，#45 三态由 config 切换 |
 | `ip.refreshMinutes/providers` | `30 / [ipify,ipinfo,ipapi]` | 同上（1..1440；枚举校验） | 公网出口 IP 展示源 |
 | `data` | `./data` | `loadConfig` 归一绝对化 | 运行数据目录 |
 

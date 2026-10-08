@@ -21,7 +21,7 @@ gates.test 校验测试列引用的 id 存在。
 | #72 | 移植：监听先行 boot-order（勿误读为不移植） | 待移植（M4 start 时序） | — |
 | #41 | 已移植（M2，port-of #41） | 设备 IP 贯穿链：`forward.js` `serveCompletion`/`proxyHeaderV1` 认领源 → `turn.js` options → `adapter.js` → `http.js` → `upstream.js` `x-forwarded-for`；4+1 断言 | upstream-forward |
 | #40 | 已移植（M2，port-of #40） | `src/forward.js` PROXY v1 嗅探/解析/前门+中继非池化；6 断言 | upstream-forward |
-| #45 | 部分移植：egress.mode=proxy（吸收 proxy/secret 逻辑，剔除 EAC 触达） | config 层 `direct\|proxy` + start.js `proxy→{mode:'client', url}` 映射已接线；subscription 入口暂不暴露 | — |
+| #45 | 已部分移植（M3，port-of #45 = egress.mode=proxy） | `src/config.js` EGRESS_MODES 三态 `direct\|proxy\|subscription` + `src/egress.js` client 分支 `cfg.password` 独立字段合成拨号 URL（url 永不含密码，内联优先）+ start.js 三态映射（proxy→client/password、subscription→受管 mihomo）；密码平台 seal（secret.js/DPAPI）不进 v0.1——无 Web UI，config 三途径 | upstream-egress |
 | #44 | 不适用：被取代 | — | — |
 | #53 | 不适用：与本仓库形态冲突（自写） | — | — |
 | #108 | 不适用：被取代/自写 | — | — |

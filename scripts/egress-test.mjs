@@ -649,6 +649,35 @@ async function main() {
     'an outlet whose every candidate lands in the refused block gives up instead of reporting a move')
   await new Promise(resolve => stateful.close(resolve))
 
+  // 15 — the outlet proxy (#45): the password travels as its own field and the
+  // stored URL stays free of it, so a config line, a log line or a status
+  // report can carry the address without carrying the credential with it.
+  stage = 'proxy-password'
+  const proxyLane = await startEgressRelay({
+    config: () => ({ mode: 'client', url: 'http://proxyuser@127.0.0.1:9', password: 'hunter2' }),
+    dataDir: path.join(os.tmpdir(), 'ofm-proxy-standalone'),
+    log: () => {},
+  })
+  check(proxyLane.outlet.url.password === 'hunter2',
+    'the configured password reaches the dialer without living in the url')
+  check(proxyLane.url === 'http://proxyuser@127.0.0.1:9',
+    'the stored url itself stays password-free')
+  check(outletLabel('http://proxyuser:hunter2@127.0.0.1:7890') === 'http://127.0.0.1:7890',
+    'display labels never carry the credential either')
+  await proxyLane.close()
+
+  // The three schemes the dialer speaks, and the ones it refuses by name.
+  let schemeError = ''
+  try {
+    await startEgressRelay({
+      config: () => ({ mode: 'client', url: 'ftp://127.0.0.1:21' }),
+      dataDir: path.join(os.tmpdir(), 'ofm-proxy-scheme'),
+      log: () => {},
+    })
+  } catch (error) { schemeError = error.message }
+  check(schemeError.includes('unsupported proxy scheme') && schemeError.includes('http, https, socks5 or socks5h'),
+    'a scheme the dialer does not speak is refused by name, with the list it does speak')
+
   fs.rmSync(dataDir, { recursive: true, force: true })
   console.log(`${failures === 0 ? 'PASS' : 'FAIL'}: egress ${checks - failures}/${checks} checks`)
   // The fake listeners (target, socks5, CONNECT) are still open; exit directly.

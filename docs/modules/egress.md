@@ -34,7 +34,7 @@
 | `egress.mode` | `'subscription'` | `SETTINGS_INITIAL` → index.js 注入的 `config()` thunk → `startEgressRelay` | `subscription`=托管 mihomo；`client`=直拨给定代理 URL（仅这两值，index.js 设置路由 400 校验） |
 | `egress.url` | `''` | 同上 | 订阅链接或代理 URL；空且 enabled 时 index.js 以 `the outlet needs a subscription or proxy URL` 拒绝 |
 | `egress.mihomoPath` | `''` | 同上 → `findMihomoBinary` | 显式 mihomo 系二进制路径；空则按 PATH/安装目录搜寻 |
-| `egress.mode`（新配置层） | `'direct'` | src/config.js `DEFAULTS.egress`（允许集 `direct\|proxy`，CLI `--egress` / env `OFM_EGRESS`）→ start.js `start` 命令 | 新配置层出口模式（承接 PR #45 的 proxy 语义）：`direct` 不起中继；`proxy` 映射为 `{mode:'client', url: egress.proxy.url}` 交给 `startEgressRelay`（起不来就退出，不悄悄改走直连）。config.json 同键样张 |
+| `egress.mode`（新配置层） | `'direct'` | src/config.js `DEFAULTS.egress`（允许集 `direct\|proxy\|subscription` 三态，CLI `--egress` / env `OFM_EGRESS`）→ start.js `start` 命令 | 出口三态由 config 切换（承接 PR #45/#207 口径）：`direct` 不起中继；`proxy` 映射为 `{mode:'client', url: egress.proxy.url, password: egress.proxy.password}`（密码走独立字段，拨号时才合成进 outlet.url）；`subscription` 映射为 `{mode:'subscription', url: egress.subscription.url}` 起受管 mihomo。起不来就退出，不悄悄改走直连。config.json 同键样张 |
 
 ## 日志错误
 
@@ -64,7 +64,7 @@
 | #75 | 已移植（M3，port-of #75） | `refreshOutletExit({avoid})` 落 `src/egress.js`（强制 provider healthcheck 全测→按 avoid 过滤取最优→PUT 切换；`controllerJson` 升级 method/body/2xx/空体）；`src/adapter.js` catch 里 `CODE.quota → onQuotaHit`（`src/http.js` `CODE.quota='RATE_LIMIT'`）；冷却（60s）、`limitedNodes` TTL（10min）、单飞轮换的宿主半装配在 start.js（M3 后续接线）；README 口径随 M5 README 重写 |
 | #82 | 已移植（M3，port-of #82） | `x-ofm-egress-fault` 三类分账（`sent` 已发送不可重放/`tunnel` 发送前可重放/`refused` 无罚）落 `src/egress.js`：`egressFetch` 阶梯（bench 中直连、故障头→laneFault、可重放体 cancel 后直连重放一次、恢复→laneHealthy 清梯）、`egressLane()` 状态导出、`laneFault` 连击门（`policy.strikes=3`）与指数旁路窗（60s×2^n 封顶 600s）、中继侧 `sent` 标志与 `failOnce` 分账、`httpConnect` 401/403/407 拒绝识别、url-test 组 `interval: 300→60`；宿主半（`onFault→scheduleOutletRotation`/`onLane` 日志、冷却 60s+单飞）落 start.js |
 | #84 | 已移植（M3，port-of #84） | `src/egress.js`：`addressBlock`（IPv4 /24、IPv6 至多 3 组 /48 的网段键，非法回 `''`）+ `siblingKey`（去尾数兄弟键）+ `rankOutletCandidates`（被拒网段整段跳过、未测节点给一次、兄弟降级、延迟升序）+ `refreshOutletExit` 增 `avoidBlocks`/`addressOf` + `stepOffBlamedAddress`（同网段连跳 ≤3）；`src/adapter.js` QUOTA_RETRY_LIMIT=1 拒后重发（onQuotaHit 返回 true 才重发、attempt 回退、refusalRetry 跳过 finishTurn）；`src/store.js` usage 行 refusal 标记；start.js 单飞轮换 refusal 模式 |
-| #45 | 部分移植 | 落点=`egress.mode=proxy`：213KB diff 吸收的 proxy/secret 逻辑经由 M0 新配置层承接（`src/config.js` `egress.mode ∈ {direct, proxy}`）；运行时 `egress.js` 仍只认 settings 注入的 `subscription\|client`，proxy 模式接入当前代码未含（待 M0 入口接线） |
+| #45 | 已部分移植（M3，port-of #45 = egress.mode=proxy） | 落点：`src/config.js` EGRESS_MODES 三态 + `src/egress.js` client 分支 `cfg.password` 独立字段合成（url 永不含密码、内联优先——日志/状态/配置行可带地址不带凭据；`outletLabel` 抹路径凭据已有）+ start.js 三态映射（proxy→client、subscription→受管 mihomo）。**不移植**：secret.js 平台 seal（DPAPI/AES）——无 Web UI，密码按 config 三途径存；`scripts/proxy-test.mjs` 三 scheme 握手断言由 egress-test 假 socks5/CONNECT 替身覆盖 |
 
 ## 测试对照
 
@@ -80,7 +80,7 @@
 - 超时模型固定：拨号/TLS/握手 10s、mihomo 就绪 15s、`readUntil` 收满 16KB 未完成即拒；中继每请求新隧道（`keepAlive: false`），不复用。
 - `client` 出口没有 controller，`readOutletSelection` 恒 `null`；url-test 未定档时同样 `null`。
 - 死子进程的重试策略归 index.js（退避 `scheduleOutletRestart`），本模块只上报一次死亡；启动中途失败的子进程由 `startEgressRelay` 自己 reap（`killChild`）。
-- #75 的配额感知换出口与 #82 故障分账均已移植（模块层 + start.js 宿主：冷却 60s、单飞、`limitedNodes` 10min 候补，`onQuotaHit`/`onFault` 双路汇入 `scheduleOutletRotation`）；#84 同区重发当前代码未含；#45 只到配置层+client 映射（`direct|proxy`），subscription 入口暂未暴露在 config 层。
+- #75/#82/#84 与 #45 三态均已移植（模块层 + start.js 宿主：冷却 60s、单飞、`limitedNodes` 10min 候补，`onQuotaHit`/`onFault` 双路汇入 `scheduleOutletRotation`；proxy 密码独立字段、subscription 起受管 mihomo）。密码平台 seal 不进 v0.1（无 Web UI，§13 仅三途径配置）。
 - 中继不缓冲流（体与 SSE 都按字节过），依赖 Node 自身流控维持 chunk 节奏。
 
 ## 变更记录
@@ -90,3 +90,4 @@
 - 2026-10-08 M3：port-of #75 落地——`refreshOutletExit` 导出 + `controllerJson` 升级（method/body、2xx 通过、204 空体→null）；`egress-test` 第13节 9 断言红→绿（59/59），`retry-safety-test` quota hook 红→绿。
 - 2026-10-08 M3：port-of #82 落地——故障梯（`laneFault`/`laneHealthy`/`laneBenched`/`replayable`）、`egressLane()` 导出、中继 `sent` 标志与 `failOnce` 三类分账、`httpConnect` 拒绝识别、组 `interval: 60`；`scripts/failover-test.mjs` 41 断言红→绿；start.js 宿主半（`onFault`/`onLane`/`onQuotaHit` → 60s 冷却单飞轮换、config `proxy`→client 映射）。
 - 2026-10-08 M3：port-of #84 落地——`addressBlock`/`siblingKey`/`rankOutletCandidates`/`stepOffBlamedAddress` + `refreshOutletExit({avoid,avoidBlocks,addressOf})` 升级；`egress-test` 第14节 18 断言红→绿（77/77）。
+- 2026-10-08 M3：port-of #45 落地——EGRESS_MODES 三态 `direct|proxy|subscription`；client 分支 `cfg.password` 独立字段合成拨号 URL（内联优先）；start.js 三态映射；`egress-test` 第15节 proxy 用例三断言+scheme 拒名（81/81）、config.test 三态放行（29 passed）红→绿。

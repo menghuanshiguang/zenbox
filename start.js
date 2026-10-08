@@ -206,10 +206,14 @@ const commands = {
     }
     if (config.egress.mode !== 'direct') {
       // 出口配了却起不来就退出，不悄悄改走直连：把用户的流量从他们配置要
-      // 绕开的地址旁路出去，比启动失败更糟。config 层的 proxy（#45）形状
-      // {url, password} 映射到拨号器的 client 语义——直拨已给代理，不起 mihomo。
+      // 绕开的地址旁路出去，比启动失败更糟。三态由 config 切换：proxy（#45）
+      // 形状 {url, password} 直拨已给代理（密码走独立字段不进 url），
+      // subscription 起受管 mihomo 拉订阅。
+      const egressShape = config.egress.mode === 'subscription'
+        ? { mode: 'subscription', url: config.egress.subscription.url }
+        : { mode: 'client', url: config.egress.proxy.url, password: config.egress.proxy.password }
       egressRelay = await startEgressRelay({
-        config: () => ({ mode: 'client', url: config.egress.proxy.url }),
+        config: () => egressShape,
         dataDir: config.data,
         log: line => log(`[egress] ${line}`),
         onFault: error => scheduleOutletRotation(`出口连击失败（${error?.message ?? error}）`),

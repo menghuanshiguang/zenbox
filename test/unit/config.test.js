@@ -71,6 +71,11 @@ check('validate: 未知 effort 被拒', () => {
 check('validate: 未知 egress 模式被拒', () => {
   expectConfigError(() => validateConfig({ ...structuredClone(DEFAULTS), egress: { mode: 'vpn' } }), 'egress.mode')
 })
+check('validate: 三态 direct/proxy/subscription 都放行（出口由 config 切换）', () => {
+  for (const mode of ['direct', 'proxy', 'subscription']) {
+    validateConfig({ ...structuredClone(DEFAULTS), egress: { ...structuredClone(DEFAULTS.egress), mode } })
+  }
+})
 check('validate: 未知顶层键被拒（打字错误拒绝启动）', () => {
   expectConfigError(() => validateConfig({ ...structuredClone(DEFAULTS), levevl: {} }), 'levevl')
 })
