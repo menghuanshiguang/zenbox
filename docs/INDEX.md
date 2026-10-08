@@ -38,7 +38,7 @@
 - store.js → forward.js
 - stream.js → http.js, upstream.js
 - trust.js → （无本地依赖）
-- turn.js → adapter.js, forward.js, probe.js
+- turn.js → adapter.js, effort.js, forward.js, probe.js
 - upstream.js → （无本地依赖）
 - start.js → adapter.js, catalog.js, config.js, egress.js, forward.js, store.js, turn.js
 <!-- deps:end -->

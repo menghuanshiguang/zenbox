@@ -12,6 +12,7 @@
  * 网络面：无（纯语义换算）；上游 I/O 全在 adapter.stream 一侧。
  */
 import { ROUTE_MAIN, ROUTE_REGION } from './adapter.js'
+import { defaultEffortFor, effortsFor } from './effort.js'
 import { STATE } from './probe.js'
 import { toOpenAiUsage } from './forward.js'
 
@@ -82,17 +83,30 @@ export function routableModelIds(state, settings) {
   return membership
 }
 
-/** The `/v1/models` rows for whatever is dialable right now. */
-export function publicModelRows(catalog, membership, nowSec = Math.floor(Date.now() / 1000)) {
+/** The `/v1/models` rows for whatever is dialable right now.
+ *  `defaultMaxTokens` seeds the effort ladder the same way the picker menu
+ *  does, so the roster and the menu cannot disagree (#74). */
+export function publicModelRows(catalog, membership, nowSec = Math.floor(Date.now() / 1000), defaultMaxTokens = 32768) {
   return catalog
     .filter(entry => membership.has(entry.id))
-    .map(entry => ({
-      id: entry.id,
-      object: 'model',
-      created: nowSec,
-      owned_by: 'our-free-model',
-      ...entry.contextWindow === undefined ? {} : { context_window: entry.contextWindow },
-    }))
+    .map(entry => {
+      // The thinking strengths this model takes, advertised on the roster the
+      // forward port serves: `x_ofm_efforts` are the ladder ids the caller may
+      // send as `reasoning_effort` (or as `model (level)`), `x_ofm_effort_default`
+      // is what applies when it sends none.
+      const efforts = effortsFor(entry, undefined, defaultMaxTokens)
+      return {
+        id: entry.id,
+        object: 'model',
+        created: nowSec,
+        owned_by: 'our-free-model',
+        ...entry.contextWindow === undefined ? {} : { context_window: entry.contextWindow },
+        ...efforts === undefined ? {} : {
+          x_ofm_efforts: efforts.map(row => row.id),
+          x_ofm_effort_default: defaultEffortFor(entry),
+        },
+      }
+    })
 }
 
 /** OpenAI request messages -> harness messages, for the forward listener.

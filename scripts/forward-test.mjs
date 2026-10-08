@@ -459,6 +459,54 @@ await checkAsync('the lane receives the caller tools the client sent', async () 
   assert.equal(response.status, 200)
   assert.deepEqual(lane.seen.at(-1).openAi.tools.map(tool => tool.function.name), ['pwsh'])
 })
+
+// ── effort arrives in one spelling, whichever door the caller used (#74) ────
+// Three doors win in order — `reasoning_effort`, the nested `reasoning.effort`,
+// the picker's own `model (level)` suffix — and all of them land on
+// `reasoning_effort`, where the ladder reads them. A word the ladder does not
+// know still resolves to the model's declared default instead of vanishing.
+await checkAsync('the model suffix carries effort when the caller names no effort field', async () => {
+  const lane = makeLane()
+  lane.script = () => ({ chunks: [], outcome: { text: 'ok', toolCalls: [], usage: undefined } })
+  const base = await serve(lane)
+  const response = await authFetch(base, '/v1/chat/completions', {
+    model: 'mimo-v2.6-flash-free (deep)', stream: false, messages: [{ role: 'user', content: 'hi' }],
+  })
+  assert.equal(response.status, 200)
+  assert.equal(lane.seen.at(-1).openAi.reasoning_effort, 'deep')
+})
+await checkAsync('an explicit reasoning_effort wins over the model suffix', async () => {
+  const lane = makeLane()
+  lane.script = () => ({ chunks: [], outcome: { text: 'ok', toolCalls: [], usage: undefined } })
+  const base = await serve(lane)
+  const response = await authFetch(base, '/v1/chat/completions', {
+    model: 'mimo-v2.6-flash-free (light)', stream: false, reasoning_effort: 'high',
+    messages: [{ role: 'user', content: 'hi' }],
+  })
+  assert.equal(response.status, 200)
+  assert.equal(lane.seen.at(-1).openAi.reasoning_effort, 'high')
+})
+await checkAsync('the nested reasoning.effort door reaches reasoning_effort too', async () => {
+  const lane = makeLane()
+  lane.script = () => ({ chunks: [], outcome: { text: 'ok', toolCalls: [], usage: undefined } })
+  const base = await serve(lane)
+  const response = await authFetch(base, '/v1/chat/completions', {
+    model: 'mimo-v2.6-flash-free', stream: false, reasoning: { effort: 'medium' },
+    messages: [{ role: 'user', content: 'hi' }],
+  })
+  assert.equal(response.status, 200)
+  assert.equal(lane.seen.at(-1).openAi.reasoning_effort, 'medium')
+})
+await checkAsync('the responses endpoint lifts caller effort the same way', async () => {
+  const lane = makeLane()
+  lane.script = () => ({ chunks: [], outcome: { text: 'ok', toolCalls: [], usage: undefined } })
+  const base = await serve(lane)
+  const response = await authFetch(base, '/v1/responses', {
+    model: 'mimo-v2.6-flash-free (deep)', stream: false, input: 'hi',
+  })
+  assert.equal(response.status, 200)
+  assert.equal(lane.seen.at(-1).openAi.reasoning_effort, 'deep')
+})
 // ── thinking under another name, and the silence while it happens ────────────
 // `readStream` consumes the payload of each SSE frame, not the frame itself —
 // the `data: ` prefix is stripped by the reader above it.

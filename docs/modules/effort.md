@@ -51,7 +51,7 @@
 
 | PR | 处置 | 落点/理由 |
 | --- | --- | --- |
-| #74 | 已移植（M1 effort 单元；forward 侧待 M2/M3） | `LEVEL_ALIASES` + `normalizeLevel` + `resolveLevel` 梯子分支走归一（`src/effort.js`）：minimal/low/none/off/disabled→light、medium→balanced、high/xhigh/max→deep，大小写与首尾空格不敏感；**声明菜单模型分支保持自身 id 精确匹配，别名不劫持**。未落：`src/forward.js` 的 `callerEffort` 三门提升与 `/v1/models` 行的 `x_ofm_efforts`/`x_ofm_effort_default` 暴露（M2/M3 forward 落位时同提交）。测试 `test/unit/effort.test.js`（effort-unit，16 断言） |
+| #74 | 已移植（M1 effort 单元 + M3 forward 端到端） | `LEVEL_ALIASES` + `normalizeLevel` + `resolveLevel` 梯子分支走归一（`src/effort.js`）：minimal/low/none/off/disabled→light、medium→balanced、high/xhigh/max→deep，大小写与首尾空格不敏感；**声明菜单模型分支保持自身 id 精确匹配，别名不劫持**。M3 补 forward 侧：`src/forward.js` 私有 `callerEffort` 三门提升（chat/responses 两端）+ `src/turn.js` `publicModelRows` 的 `x_ofm_efforts`/`x_ofm_effort_default` 暴露（与菜单同用 `effortsFor`）。测试 `test/unit/effort.test.js`（effort-unit，16 断言）+ `scripts/forward-test.mjs` #74 四断言 + `test/unit/turn.test.js` x_ofm 两态 |
 
 ## 测试对照
 
@@ -65,7 +65,7 @@
 
 - 档位的全部效力来自 `max_tokens`：天花板同时约束思考与正文，低档位缩短的是两者的总和，这是本车道唯一可用的调制手段（模块注释的实测依据）。
 - 声明菜单模型不做梯子：其上限恒为模型容量，因为 wire 上的控制量是 effort 字段而非 token 数。
-- #74 的别名映射已于 M1 移植（`normalizeLevel`）；`/v1/models` 行的 `x_ofm_efforts`/`x_ofm_effort_default` 暴露与 `src/forward.js` 的 `callerEffort` 三门提升仍在 forward 落位时（M2/M3）实现。移植前 `effortsFor` 的 id 集恒为 `light/balanced/deep`（菜单模型为 `efforts` 声明集）。
+- #74 全量落地（M1 `normalizeLevel` + M3 forward `callerEffort` 三门与 `x_ofm_*` 暴露）；移植前 `effortsFor` 的 id 集恒为 `light/balanced/deep`（菜单模型为 `efforts` 声明集）。
 - 不处理重试、配额、记录：`providerRetryPolicy` 的 `retryableCodes` 在 `src/adapter.js`，统计在 `src/store.js`。
 
 ## 变更记录
@@ -73,3 +73,4 @@
 - 2026-10-07 建档（M0，依据上游 fbc3b9b + AGENT-BRIEF）。
 - M0（cut 5b84917）本仓库改动：`eacDefaultLevel` → `menuDefaultLevel` 改名、`kilos` → `roundK` 改名（EAC 车道痕迹清除，4 处调用点同步）。
 - 2026-10-07 M1 移植 #74（effort 侧）：新增 `LEVEL_ALIASES`/`normalizeLevel`，`resolveLevel` 梯子分支归一；菜单分支保持精确匹配。红→绿 `test/unit/effort.test.js` 16 断言；本文件同步。
+- 2026-10-08 M3 移植 #74（forward 端到端）：`src/forward.js` `callerEffort` 三门 + `src/turn.js` `publicModelRows` `x_ofm_*` 暴露；forward-test #74 四断言与 turn.test 两断言红→绿。

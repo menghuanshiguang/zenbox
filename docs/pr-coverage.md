@@ -17,7 +17,7 @@ gates.test 校验测试列引用的 id 存在。
 | #82 | 已移植（M3，port-of #82） | `src/egress.js` 故障梯+`egressLane()`+中继分账+组 interval 60；宿主半 `onFault`/`onLane`/`onQuotaHit`→60s 冷却单飞轮换落 start.js | upstream-failover |
 | #76 | 已移植（M2，port-of #76） | `src/forward.js` `rankLanAddresses`/`VIRTUAL_IFACE`；面板轮询 API 不适用（无 Web UI），banner/status 现读（M4） | upstream-forward |
 | #75 | 已移植（M3，port-of #75）——onQuotaHit→refreshOutletExit({avoid}) | `src/adapter.js` quota 回调 + `src/egress.js` refreshOutletExit/controllerJson 升级；宿主冷却轮换已接线 start.js | upstream-egress |
-| #74 | 移植：effort 别名 minimal/low/medium/high/none→light/balanced/deep + /v1/models 暴露档位 | 已移植（M1: `src/effort.js` normalizeLevel/LEVEL_ALIASES + resolveLevel 别名解析，commit 见 git log `feat(effort)`；forward 侧 callerEffort 与 /v1/models `x_ofm_*` 暴露属 M2/M3 落位） | effort-unit |
+| #74 | 已移植（M1 effort 单元 + M3 forward 端到端，port-of #74） | `src/effort.js` normalizeLevel/LEVEL_ALIASES（M1）+ `src/forward.js` callerEffort 三门（chat/responses 两端抬到 reasoning_effort）+ `src/turn.js` publicModelRows `x_ofm_efforts`/`x_ofm_effort_default` 暴露 | effort-unit、upstream-forward、turn-unit |
 | #72 | 移植：监听先行 boot-order（勿误读为不移植） | 待移植（M4 start 时序） | — |
 | #41 | 已移植（M2，port-of #41） | 设备 IP 贯穿链：`forward.js` `serveCompletion`/`proxyHeaderV1` 认领源 → `turn.js` options → `adapter.js` → `http.js` → `upstream.js` `x-forwarded-for`；4+1 断言 | upstream-forward |
 | #40 | 已移植（M2，port-of #40） | `src/forward.js` PROXY v1 嗅探/解析/前门+中继非池化；6 断言 | upstream-forward |

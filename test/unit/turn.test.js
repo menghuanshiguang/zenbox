@@ -10,6 +10,7 @@ import {
   fromOpenAiMessages, normalizeTool, foldForwardOutcome, createRunForwarded,
 } from '../../src/turn.js'
 import { ROUTE_MAIN, ROUTE_REGION } from '../../src/adapter.js'
+import { effortsFor } from '../../src/effort.js'
 import { STATE } from '../../src/probe.js'
 import { buildCatalog } from '../../src/catalog.js'
 
@@ -158,6 +159,19 @@ await check('publicModelRows 过滤到可拨号线路并带 context_window', () 
   assert.equal(rows[0].owned_by, 'our-free-model')
   assert.equal(rows[0].context_window, 1048576)
 })
+await check('publicModelRows 暴露 x_ofm_efforts 与默认档，与 picker 菜单同源（#74）', () => {
+  const rows = publicModelRows(catalog2, new Set(['mimo-v2.6-flash-free']))
+  const entry = catalog2.find(item => item.id === 'mimo-v2.6-flash-free')
+  const ladder = effortsFor(entry, undefined, 32768)
+  assert.ok(Array.isArray(ladder) && ladder.length > 0, '前提：mimo 有档位梯子')
+  assert.deepEqual(rows[0].x_ofm_efforts, ladder.map(row => row.id))
+  assert.ok(rows[0].x_ofm_efforts.includes(rows[0].x_ofm_effort_default))
+})
+await check('无档位模型不带 x_ofm_*（effortsFor 返回 undefined 即整段省略）', () => {
+  const rows = publicModelRows(catalog2, new Set(['union-alpha']))
+  assert.equal('x_ofm_efforts' in rows[0], false)
+  assert.equal('x_ofm_effort_default' in rows[0], false)
+})
 
 // ─── createRunForwarded（OpenAI 语义门） ───
 const fakeAdapter = () => {
@@ -228,4 +242,4 @@ await check('截断轮过滤参数坏掉的工具调用（与 length 一致）',
 })
 
 console.log(`turn.test: ${passed} passed`)
-if (passed !== 19) process.exitCode = 1
+if (passed !== 21) process.exitCode = 1
